@@ -203,6 +203,9 @@ void MidiCIManager::setupDeviceConfiguration() {
     config_->auto_send_endpoint_inquiry = true;
     config_->auto_send_profile_inquiry = true;
     config_->auto_send_property_exchange_capabilities_inquiry = true;
+    config_->auto_send_process_inquiry = true;
+    config_->auto_send_get_resource_list = true;
+    config_->auto_send_get_device_info = true;
     
     // Add basic General MIDI profile
     std::vector<uint8_t> gm_profile_data{0x7E, 0x00, 0x00, 0x00, 0x01}; // General MIDI Level 1

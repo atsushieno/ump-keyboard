@@ -12,7 +12,7 @@ public:
     KeyboardController();
     ~KeyboardController();
     
-    bool initialize();
+    bool resetMidiConnections();
     void noteOn(int note, int velocity);
     void noteOff(int note);
     void allNotesOff();
@@ -65,6 +65,10 @@ private:
     bool sendSysExViaMidi(uint8_t group, const std::vector<uint8_t>& data);
     
     // Connection state helpers
-    void checkAndNotifyConnectionState();
+    void updateUIConnectionState();
     bool previousConnectionState = false;
+    
+    // SysEx reconstruction state for multi-packet UMP SysEx7
+    std::vector<uint8_t> sysex_buffer_;
+    bool sysex_in_progress_ = false;
 };

@@ -270,7 +270,7 @@ void KeyboardWidget::updateMidiDevices(
     
     // Update output devices
     outputDeviceCombo->clear();
-    outputDeviceCombo->addItem("Virtual Port", "virtual");
+    outputDeviceCombo->addItem("No Output Device", "");
     for (const auto& device : outputDevices) {
         outputDeviceCombo->addItem(QString::fromStdString(device.second), 
                                  QString::fromStdString(device.first));
