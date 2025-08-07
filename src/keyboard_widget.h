@@ -11,6 +11,7 @@
 #include <QtCore/QSignalMapper>
 #include <QtCore/QTimer>
 #include <functional>
+#include "midi_ci_manager.h"
 
 class PianoKey;
 
@@ -26,6 +27,13 @@ public:
     
     void updateMidiDevices(const std::vector<std::pair<std::string, std::string>>& inputDevices,
                           const std::vector<std::pair<std::string, std::string>>& outputDevices);
+    
+    // MIDI-CI UI methods
+    void updateMidiCIStatus(bool initialized, uint32_t muid, const std::string& deviceName);
+    void updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& discoveredDevices);
+    void setMidiCIDiscoveryCallback(std::function<void()> callback);
+    void setMidiCIUpdateCallback(std::function<void()> callback);
+    void setMidiCIDeviceProvider(std::function<MidiCIDeviceInfo*(uint32_t)> provider);
 
 signals:
     void midiInputDeviceChanged(const QString& deviceId);
@@ -37,16 +45,23 @@ private slots:
     void onInputDeviceChanged(int index);
     void onOutputDeviceChanged(int index);
     void refreshDevices();
+    void sendMidiCIDiscovery();
+    void updateMidiCIPeriodically();
+    void onMidiCIDeviceSelected(int index);
 
 private:
     void setupUI();
     void setupKeyboard();
     void setupDeviceSelectors();
+    void setupMidiCIControls();
     QWidget* createKeyboardWidget();
     
     std::function<void(int)> keyPressedCallback;
     std::function<void(int)> keyReleasedCallback;
     std::function<void()> deviceRefreshCallback;
+    std::function<void()> midiCIDiscoveryCallback;
+    std::function<void()> midiCIUpdateCallback;
+    std::function<MidiCIDeviceInfo*(uint32_t)> midiCIDeviceProvider;
     
     QVBoxLayout* mainLayout;
     QWidget* keyboardWidget;
@@ -60,9 +75,19 @@ private:
     QLabel* velocityLabel;
     QProgressBar* velocityBar;
     
+    // MIDI-CI UI elements
+    QGroupBox* midiCIGroup;
+    QLabel* midiCIStatusLabel;
+    QLabel* midiCIMuidLabel;
+    QLabel* midiCIDeviceNameLabel;
+    QPushButton* midiCIDiscoveryButton;
+    QComboBox* midiCIDeviceCombo;
+    QLabel* midiCISelectedDeviceInfo;
+    
     QList<PianoKey*> whiteKeys;
     QList<PianoKey*> blackKeys;
     
     QSignalMapper* pressMapper;
     QSignalMapper* releaseMapper;
+    QTimer* midiCIUpdateTimer;
 };

@@ -25,6 +25,50 @@ int main(int argc, char** argv) {
         auto inputDevices = controller.getInputDevices();
         auto outputDevices = controller.getOutputDevices();
         keyboard.updateMidiDevices(inputDevices, outputDevices);
+        
+        // MIDI-CI status should remain static - only update device list if connections change
+    });
+    
+    // Set up MIDI-CI callback
+    keyboard.setMidiCIDiscoveryCallback([&controller, &keyboard]() {
+        controller.sendMidiCIDiscovery();
+        std::cout << "MIDI-CI Discovery sent" << std::endl;
+        
+        // Update device list after discovery
+        keyboard.updateMidiCIDevices(controller.getMidiCIDeviceDetails());
+    });
+    
+    // Set up MIDI-CI devices changed callback for automatic updates
+    controller.setMidiCIDevicesChangedCallback([&controller, &keyboard]() {
+        keyboard.updateMidiCIDevices(controller.getMidiCIDeviceDetails());
+        std::cout << "MIDI-CI device list updated" << std::endl;
+    });
+    
+    // Set up periodic MIDI-CI updates
+    keyboard.setMidiCIUpdateCallback([&controller, &keyboard]() {
+        keyboard.updateMidiCIStatus(
+            controller.isMidiCIInitialized(),
+            controller.getMidiCIMuid(),
+            controller.getMidiCIDeviceName()
+        );
+        keyboard.updateMidiCIDevices(controller.getMidiCIDeviceDetails());
+    });
+    
+    // Set up MIDI-CI device provider for detailed info
+    keyboard.setMidiCIDeviceProvider([&controller](uint32_t muid) -> MidiCIDeviceInfo* {
+        return controller.getMidiCIDeviceByMuid(muid);
+    });
+    
+    // Set up MIDI connection state change callback for auto-discovery
+    controller.setMidiConnectionChangedCallback([&controller, &keyboard](bool hasValidPair) {
+        if (hasValidPair && controller.isMidiCIInitialized()) {
+            std::cout << "Valid MIDI pair established - sending MIDI-CI Discovery" << std::endl;
+            controller.sendMidiCIDiscovery();
+            keyboard.updateMidiCIDevices(controller.getMidiCIDeviceDetails());
+        } else if (!hasValidPair) {
+            std::cout << "MIDI pair disconnected - clearing MIDI-CI device list" << std::endl;
+            keyboard.updateMidiCIDevices(controller.getMidiCIDeviceDetails());
+        }
     });
     
     // Connect device selection signals
@@ -42,6 +86,14 @@ int main(int argc, char** argv) {
     auto inputDevices = controller.getInputDevices();
     auto outputDevices = controller.getOutputDevices();
     keyboard.updateMidiDevices(inputDevices, outputDevices);
+    
+    // Update MIDI-CI status
+    keyboard.updateMidiCIStatus(
+        controller.isMidiCIInitialized(),
+        controller.getMidiCIMuid(),
+        controller.getMidiCIDeviceName()
+    );
+    keyboard.updateMidiCIDevices(controller.getMidiCIDeviceDetails());
     
     keyboard.show();
     

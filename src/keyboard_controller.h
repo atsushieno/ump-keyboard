@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include "midi_ci_manager.h"
 
 class KeyboardController {
 public:
@@ -26,14 +27,30 @@ public:
     
     void refreshDevices();
     
+    // MIDI-CI functionality
+    void sendMidiCIDiscovery();
+    std::vector<std::string> getMidiCIDevices();
+    std::vector<MidiCIDeviceInfo> getMidiCIDeviceDetails();
+    MidiCIDeviceInfo* getMidiCIDeviceByMuid(uint32_t muid);
+    bool isMidiCIInitialized() const;
+    uint32_t getMidiCIMuid() const;
+    std::string getMidiCIDeviceName() const;
+    void setMidiCIDevicesChangedCallback(std::function<void()> callback);
+    
+    // MIDI connection state
+    bool hasValidMidiPair() const;
+    void setMidiConnectionChangedCallback(std::function<void(bool)> callback);
+    
 private:
     std::unique_ptr<libremidi::midi_in> midiIn;
     std::unique_ptr<libremidi::midi_out> midiOut;
     std::unique_ptr<libremidi::observer> observer;
+    std::unique_ptr<MidiCIManager> midiCIManager;
     
     std::string currentInputDeviceId;
     std::string currentOutputDeviceId;
     
+    std::function<void(bool)> midiConnectionChangedCallback;
     bool initialized = false;
     
     void onMidiInput(libremidi::ump&& packet);
@@ -41,4 +58,13 @@ private:
     // Helper functions for creating UMP packets
     libremidi::ump createUmpNoteOn(int channel, int note, int velocity);
     libremidi::ump createUmpNoteOff(int channel, int note);
+    
+    // MIDI-CI helper methods
+    void initializeMidiCI();
+    void processSysExForMidiCI(const std::vector<uint8_t>& sysex_data);
+    bool sendSysExViaMidi(uint8_t group, const std::vector<uint8_t>& data);
+    
+    // Connection state helpers
+    void checkAndNotifyConnectionState();
+    bool previousConnectionState = false;
 };

@@ -70,6 +70,11 @@ KeyboardWidget::KeyboardWidget(QWidget* parent)
     
     connect(pressMapper, &QSignalMapper::mappedInt, this, &KeyboardWidget::onKeyPressed);
     connect(releaseMapper, &QSignalMapper::mappedInt, this, &KeyboardWidget::onKeyReleased);
+    
+    // Set up periodic MIDI-CI updates
+    midiCIUpdateTimer = new QTimer(this);
+    connect(midiCIUpdateTimer, &QTimer::timeout, this, &KeyboardWidget::updateMidiCIPeriodically);
+    midiCIUpdateTimer->start(2000); // Update every 2 seconds
 }
 
 void KeyboardWidget::setupUI() {
@@ -88,6 +93,9 @@ void KeyboardWidget::setupUI() {
     
     // Device selectors
     setupDeviceSelectors();
+    
+    // MIDI-CI controls
+    setupMidiCIControls();
     
     // Keyboard
     setupKeyboard();
@@ -298,6 +306,154 @@ void KeyboardWidget::onOutputDeviceChanged(int index) {
 void KeyboardWidget::refreshDevices() {
     if (deviceRefreshCallback) {
         deviceRefreshCallback();
+    }
+}
+
+void KeyboardWidget::setupMidiCIControls() {
+    midiCIGroup = new QGroupBox("MIDI-CI Status");
+    midiCIGroup->setMaximumHeight(200); // Slightly taller for combobox
+    QVBoxLayout* midiCILayout = new QVBoxLayout(midiCIGroup);
+    midiCILayout->setSpacing(5); // Reduce spacing
+    
+    // Top row: Status and MUID in one line
+    QHBoxLayout* topLayout = new QHBoxLayout();
+    topLayout->addWidget(new QLabel("Status:"));
+    midiCIStatusLabel = new QLabel("Not Initialized");
+    midiCIStatusLabel->setStyleSheet("color: red; font-weight: bold;");
+    topLayout->addWidget(midiCIStatusLabel);
+    topLayout->addSpacing(20);
+    topLayout->addWidget(new QLabel("MUID:"));
+    midiCIMuidLabel = new QLabel("N/A");
+    topLayout->addWidget(midiCIMuidLabel);
+    topLayout->addStretch();
+    midiCILayout->addLayout(topLayout);
+    
+    // Device name row
+    QHBoxLayout* deviceNameLayout = new QHBoxLayout();
+    deviceNameLayout->addWidget(new QLabel("Device:"));
+    midiCIDeviceNameLabel = new QLabel("N/A");
+    deviceNameLayout->addWidget(midiCIDeviceNameLabel);
+    deviceNameLayout->addStretch();
+    midiCILayout->addLayout(deviceNameLayout);
+    
+    // Discovery button
+    QHBoxLayout* discoveryLayout = new QHBoxLayout();
+    midiCIDiscoveryButton = new QPushButton("Send Discovery");
+    midiCIDiscoveryButton->setEnabled(false);
+    midiCIDiscoveryButton->setMaximumWidth(120);
+    connect(midiCIDiscoveryButton, &QPushButton::clicked, this, &KeyboardWidget::sendMidiCIDiscovery);
+    discoveryLayout->addWidget(midiCIDiscoveryButton);
+    discoveryLayout->addStretch();
+    midiCILayout->addLayout(discoveryLayout);
+    
+    // Device selection combobox
+    QHBoxLayout* deviceSelectionLayout = new QHBoxLayout();
+    deviceSelectionLayout->addWidget(new QLabel("Select Device:"));
+    midiCIDeviceCombo = new QComboBox();
+    midiCIDeviceCombo->setEnabled(false);
+    midiCIDeviceCombo->addItem("No devices discovered");
+    connect(midiCIDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), 
+            this, &KeyboardWidget::onMidiCIDeviceSelected);
+    deviceSelectionLayout->addWidget(midiCIDeviceCombo, 1);
+    midiCILayout->addLayout(deviceSelectionLayout);
+    
+    // Selected device detailed info
+    midiCISelectedDeviceInfo = new QLabel("Select a MIDI-CI device to view details");
+    midiCISelectedDeviceInfo->setWordWrap(true);
+    midiCISelectedDeviceInfo->setMaximumHeight(50);
+    midiCISelectedDeviceInfo->setStyleSheet("font-size: 11px; background-color: #f5f5f5; padding: 4px; border: 1px solid #ccc;");
+    midiCILayout->addWidget(midiCISelectedDeviceInfo);
+    
+    mainLayout->addWidget(midiCIGroup);
+}
+
+void KeyboardWidget::updateMidiCIStatus(bool initialized, uint32_t muid, const std::string& deviceName) {
+    if (initialized) {
+        midiCIStatusLabel->setText("Initialized");
+        midiCIStatusLabel->setStyleSheet("color: green; font-weight: bold;");
+        midiCIMuidLabel->setText(QString("0x%1 (%2)").arg(muid, 0, 16).arg(muid));
+        midiCIDeviceNameLabel->setText(QString::fromStdString(deviceName));
+        midiCIDiscoveryButton->setEnabled(true);
+    } else {
+        midiCIStatusLabel->setText("Not Initialized");
+        midiCIStatusLabel->setStyleSheet("color: red; font-weight: bold;");
+        midiCIMuidLabel->setText("N/A");
+        midiCIDeviceNameLabel->setText("N/A");
+        midiCIDiscoveryButton->setEnabled(false);
+    }
+}
+
+void KeyboardWidget::updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& discoveredDevices) {
+    // Clear and repopulate the combobox
+    midiCIDeviceCombo->clear();
+    
+    if (discoveredDevices.empty()) {
+        midiCIDeviceCombo->addItem("No devices discovered");
+        midiCIDeviceCombo->setEnabled(false);
+        midiCISelectedDeviceInfo->setText("No MIDI-CI devices discovered. Send discovery to find devices.");
+    } else {
+        midiCIDeviceCombo->setEnabled(true);
+        for (const auto& device : discoveredDevices) {
+            QString displayName = QString::fromStdString(device.getDisplayName());
+            midiCIDeviceCombo->addItem(displayName, device.muid);
+        }
+        
+        // Auto-select first device if available
+        if (!discoveredDevices.empty()) {
+            onMidiCIDeviceSelected(0);
+        }
+    }
+}
+
+void KeyboardWidget::setMidiCIDiscoveryCallback(std::function<void()> callback) {
+    midiCIDiscoveryCallback = callback;
+}
+
+void KeyboardWidget::setMidiCIUpdateCallback(std::function<void()> callback) {
+    midiCIUpdateCallback = callback;
+}
+
+void KeyboardWidget::setMidiCIDeviceProvider(std::function<MidiCIDeviceInfo*(uint32_t)> provider) {
+    midiCIDeviceProvider = provider;
+}
+
+void KeyboardWidget::sendMidiCIDiscovery() {
+    if (midiCIDiscoveryCallback) {
+        midiCIDiscoveryCallback();
+    }
+}
+
+void KeyboardWidget::updateMidiCIPeriodically() {
+    if (midiCIUpdateCallback) {
+        midiCIUpdateCallback();
+    }
+}
+
+void KeyboardWidget::onMidiCIDeviceSelected(int index) {
+    if (index < 0 || !midiCIDeviceProvider) {
+        midiCISelectedDeviceInfo->setText("No device selected");
+        return;
+    }
+    
+    QVariant muidVariant = midiCIDeviceCombo->itemData(index);
+    if (!muidVariant.isValid()) {
+        midiCISelectedDeviceInfo->setText("Invalid device selection");
+        return;
+    }
+    
+    uint32_t muid = muidVariant.toUInt();
+    MidiCIDeviceInfo* device = midiCIDeviceProvider(muid);
+    
+    if (device) {
+        QString info = QString("MUID: 0x%1 (%2)\nManufacturer: %3\nModel: %4\nVersion: %5")
+                       .arg(muid, 0, 16)
+                       .arg(muid)
+                       .arg(QString::fromStdString(device->manufacturer))
+                       .arg(QString::fromStdString(device->model))
+                       .arg(QString::fromStdString(device->version));
+        midiCISelectedDeviceInfo->setText(info);
+    } else {
+        midiCISelectedDeviceInfo->setText("Device information not available");
     }
 }
 

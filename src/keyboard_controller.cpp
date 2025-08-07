@@ -2,6 +2,7 @@
 #include <iostream>
 #include <algorithm>
 #include <libremidi/ump.hpp>
+#include <cmidi2.h>
 
 KeyboardController::KeyboardController() {
     initialize();
@@ -15,6 +16,9 @@ KeyboardController::~KeyboardController() {
         }
         if (midiOut && midiOut->is_port_open()) {
             midiOut->close_port();
+        }
+        if (midiCIManager) {
+            midiCIManager->shutdown();
         }
     }
 }
@@ -50,6 +54,7 @@ bool KeyboardController::initialize() {
         inConf.on_message = [this](libremidi::ump&& packet) {
             onMidiInput(std::move(packet));
         };
+        
         midiIn = std::make_unique<libremidi::midi_in>(inConf, libremidi::midi2::in_default_configuration());
         
         // Create MIDI output with UMP configuration
@@ -58,6 +63,9 @@ bool KeyboardController::initialize() {
         
         // Start with virtual output port
         selectOutputDevice("virtual");
+        
+        // Initialize MIDI-CI
+        initializeMidiCI();
         
         initialized = true;
         return true;
@@ -127,11 +135,13 @@ bool KeyboardController::selectInputDevice(const std::string& deviceId) {
     try {
         if (midiIn && midiIn->is_port_open()) {
             midiIn->close_port();
+            checkAndNotifyConnectionState(); // Check after closing
         }
         
         if (deviceId.empty()) {
             std::cout << "No input device selected" << std::endl;
             currentInputDeviceId = "";
+            checkAndNotifyConnectionState();
             return true;
         }
         
@@ -142,6 +152,7 @@ bool KeyboardController::selectInputDevice(const std::string& deviceId) {
             midiIn->open_port(ports[portIndex]);
             currentInputDeviceId = deviceId;
             std::cout << "Opened input device: " << ports[portIndex].port_name << std::endl;
+            checkAndNotifyConnectionState();
             return true;
         } else {
             std::cerr << "Invalid input device ID: " << deviceId << std::endl;
@@ -157,12 +168,14 @@ bool KeyboardController::selectOutputDevice(const std::string& deviceId) {
     try {
         if (midiOut && midiOut->is_port_open()) {
             midiOut->close_port();
+            checkAndNotifyConnectionState(); // Check after closing
         }
         
         if (deviceId == "virtual") {
             midiOut->open_virtual_port("UMP Keyboard");
             currentOutputDeviceId = deviceId;
             std::cout << "Created virtual MIDI output port: UMP Keyboard" << std::endl;
+            checkAndNotifyConnectionState();
             return true;
         }
         
@@ -173,6 +186,7 @@ bool KeyboardController::selectOutputDevice(const std::string& deviceId) {
             midiOut->open_port(ports[portIndex]);
             currentOutputDeviceId = deviceId;
             std::cout << "Opened output device: " << ports[portIndex].port_name << std::endl;
+            checkAndNotifyConnectionState();
             return true;
         } else {
             std::cerr << "Invalid output device ID: " << deviceId << std::endl;
@@ -231,12 +245,49 @@ void KeyboardController::allNotesOff() {
 
 void KeyboardController::onMidiInput(libremidi::ump&& packet) {
     // Handle incoming UMP packets
-    // This could be used for MIDI input from external devices
-    std::cout << "UMP Input: ";
+    std::cout << "[UMP INPUT] Raw packet: ";
     for (int i = 0; i < 4; i++) {
-        std::cout << std::hex << packet.data[i] << " ";
+        std::cout << std::hex << "0x" << packet.data[i] << " ";
     }
     std::cout << std::dec << std::endl;
+    
+    // Check if this is a System Exclusive message (UMP Type 3 - SysEx)
+    uint8_t message_type = (packet.data[0] >> 28) & 0xF;
+    if (message_type == 0x3) { // SysEx UMP
+        std::cout << "[SYSEX DETECTED] UMP SysEx message type 3" << std::endl;
+        
+        // Extract SysEx data from UMP packet
+        std::vector<uint8_t> sysex_data;
+        
+        // UMP SysEx format: extract the actual SysEx bytes
+        uint8_t group = (packet.data[0] >> 24) & 0xF;
+        uint8_t status = (packet.data[0] >> 20) & 0xF;
+        uint8_t number_of_bytes = (packet.data[0] >> 16) & 0xF;
+        
+        std::cout << "[SYSEX INFO] Group: " << (int)group << ", Status: " << (int)status << ", Bytes: " << (int)number_of_bytes << std::endl;
+        
+        if (status == 0x0) { // Complete SysEx in one packet
+            // Extract bytes from the UMP packet
+            for (int i = 0; i < number_of_bytes && i < 6; i++) {
+                if (i < 2) {
+                    sysex_data.push_back((packet.data[0] >> (8 * (1 - i))) & 0xFF);
+                } else if (i < 6) {
+                    sysex_data.push_back((packet.data[1] >> (8 * (5 - i))) & 0xFF);
+                }
+            }
+        }
+        
+        std::cout << "[SYSEX DATA] Extracted bytes: ";
+        for (auto byte : sysex_data) {
+            std::cout << std::hex << "0x" << (int)byte << " ";
+        }
+        std::cout << std::dec << std::endl;
+        
+        // Process through MIDI-CI if it looks like a MIDI-CI message
+        if (!sysex_data.empty()) {
+            processSysExForMidiCI(sysex_data);
+        }
+    }
 }
 
 libremidi::ump KeyboardController::createUmpNoteOn(int channel, int note, int velocity) {
@@ -253,4 +304,190 @@ libremidi::ump KeyboardController::createUmpNoteOff(int channel, int note) {
     uint32_t word0 = (0x4 << 28) | (channel << 24) | (0x80 << 16) | (note << 8) | 0x00;
     uint32_t word1 = 0; // Zero velocity for note off
     return libremidi::ump(word0, word1, 0, 0);
+}
+
+
+void KeyboardController::sendMidiCIDiscovery() {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        midiCIManager->sendDiscovery();
+    }
+}
+
+std::vector<std::string> KeyboardController::getMidiCIDevices() {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        return midiCIManager->getDiscoveredDevices();
+    }
+    return {};
+}
+
+std::vector<MidiCIDeviceInfo> KeyboardController::getMidiCIDeviceDetails() {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        return midiCIManager->getDiscoveredDeviceDetails();
+    }
+    return {};
+}
+
+MidiCIDeviceInfo* KeyboardController::getMidiCIDeviceByMuid(uint32_t muid) {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        return midiCIManager->getDeviceByMuid(muid);
+    }
+    return nullptr;
+}
+
+bool KeyboardController::isMidiCIInitialized() const {
+    return midiCIManager && midiCIManager->isInitialized();
+}
+
+uint32_t KeyboardController::getMidiCIMuid() const {
+    if (midiCIManager) {
+        return midiCIManager->getMuid();
+    }
+    return 0;
+}
+
+std::string KeyboardController::getMidiCIDeviceName() const {
+    if (midiCIManager) {
+        return midiCIManager->getDeviceName();
+    }
+    return "";
+}
+
+void KeyboardController::setMidiCIDevicesChangedCallback(std::function<void()> callback) {
+    if (midiCIManager) {
+        midiCIManager->setDevicesChangedCallback(callback);
+    }
+}
+
+bool KeyboardController::hasValidMidiPair() const {
+    return midiIn && midiIn->is_port_open() && midiOut && midiOut->is_port_open();
+}
+
+void KeyboardController::setMidiConnectionChangedCallback(std::function<void(bool)> callback) {
+    midiConnectionChangedCallback = callback;
+}
+
+void KeyboardController::initializeMidiCI() {
+    try {
+        midiCIManager = std::make_unique<MidiCIManager>();
+        
+        // Set up logging callback
+        midiCIManager->setLogCallback([](const std::string& message) {
+            std::cout << message << std::endl;
+        });
+        
+        // Set up SysEx sender callback BEFORE initialization
+        midiCIManager->setSysExSender([this](uint8_t group, const std::vector<uint8_t>& data) -> bool {
+            std::cout << "[SYSEX CALLBACK] External SysEx sender called with " << data.size() << " bytes" << std::endl;
+            return sendSysExViaMidi(group, data);
+        });
+        
+        // Initialize the MIDI-CI manager (will now use the SysEx sender)
+        if (!midiCIManager->initialize()) {
+            std::cerr << "Failed to initialize MIDI-CI manager" << std::endl;
+            midiCIManager.reset();
+        }
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error initializing MIDI-CI: " << e.what() << std::endl;
+        midiCIManager.reset();
+    }
+}
+
+void KeyboardController::processSysExForMidiCI(const std::vector<uint8_t>& sysex_data) {
+    std::cout << "[MIDI-CI CHECK] Processing SysEx for MIDI-CI, size: " << sysex_data.size() << std::endl;
+    
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        // Check if this is a MIDI-CI message (starts with 0x7E for Universal Non-Real Time)
+        if (!sysex_data.empty() && sysex_data[0] == 0xF0 && sysex_data.size() > 2 && sysex_data[1] == 0x7E) {
+            std::cout << "[MIDI-CI DETECTED] Universal Non-Real Time SysEx (0x7E)" << std::endl;
+            
+            if (sysex_data.size() > 3) {
+                std::cout << "[MIDI-CI INFO] Device ID: 0x" << std::hex << (int)sysex_data[2] << std::dec;
+                if (sysex_data.size() > 4) {
+                    std::cout << ", Sub-ID1: 0x" << std::hex << (int)sysex_data[3] << std::dec;
+                    if (sysex_data[3] == 0x0D) {
+                        std::cout << " (MIDI-CI)";
+                    }
+                }
+                std::cout << std::endl;
+            }
+            
+            midiCIManager->processMidi1SysEx(sysex_data);
+        } else {
+            std::cout << "[MIDI-CI SKIP] Not a MIDI-CI message (not 0xF0 0x7E)" << std::endl;
+        }
+    } else {
+        std::cout << "[MIDI-CI SKIP] MIDI-CI Manager not initialized" << std::endl;
+    }
+}
+
+bool KeyboardController::sendSysExViaMidi(uint8_t group, const std::vector<uint8_t>& data) {
+    if (!midiOut || !initialized) {
+        return false;
+    }
+    
+    try {
+        std::cout << "[SYSEX SEND] Sending " << data.size() << " bytes via UMP SYSEX7 using cmidi2" << std::endl;
+        
+        // Log the data being sent
+        std::cout << "[SYSEX SEND] Data: ";
+        for (size_t i = 0; i < std::min(data.size(), size_t(16)); i++) {
+            std::cout << std::hex << "0x" << (int)data[i] << " ";
+        }
+        if (data.size() > 16) std::cout << "...";
+        std::cout << std::dec << std::endl;
+        
+        // Use cmidi2 to convert SysEx to UMP SYSEX7 packets
+        void* result = cmidi2_ump_sysex7_process(
+            group,
+            const_cast<void*>(static_cast<const void*>(data.data())),
+            [](uint64_t umpData, void* context) -> void* {
+                auto* controller = static_cast<KeyboardController*>(context);
+                
+                // Extract the two 32-bit words from the 64-bit UMP data
+                uint32_t word0 = static_cast<uint32_t>(umpData >> 32);
+                uint32_t word1 = static_cast<uint32_t>(umpData & 0xFFFFFFFF);
+                
+                // Create UMP packet and send it
+                libremidi::ump packet(word0, word1, 0, 0);
+                
+                std::cout << "[SYSEX SEND] UMP packet: 0x" << std::hex << word0 << " 0x" << word1 << std::dec << std::endl;
+                
+                try {
+                    controller->midiOut->send_ump(packet);
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to send UMP SYSEX7 packet: " << e.what() << std::endl;
+                    return const_cast<void*>(static_cast<const void*>(&e)); // Return error
+                }
+                
+                return nullptr; // Success
+            },
+            this
+        );
+        
+        if (result != nullptr) {
+            std::cerr << "[SYSEX SEND] cmidi2_ump_sysex7_process failed" << std::endl;
+            return false;
+        }
+        
+        std::cout << "[SYSEX SEND] UMP SYSEX7 packets sent successfully using cmidi2" << std::endl;
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error sending SysEx via UMP: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+void KeyboardController::checkAndNotifyConnectionState() {
+    bool currentConnectionState = hasValidMidiPair();
+    
+    if (currentConnectionState != previousConnectionState) {
+        previousConnectionState = currentConnectionState;
+        
+        if (midiConnectionChangedCallback) {
+            midiConnectionChangedCallback(currentConnectionState);
+        }
+        
+        std::cout << "MIDI connection pair state changed: " << (currentConnectionState ? "CONNECTED" : "DISCONNECTED") << std::endl;
+    }
 }
