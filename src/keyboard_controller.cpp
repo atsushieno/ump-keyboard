@@ -50,11 +50,13 @@ bool KeyboardController::resetMidiConnections() {
         observer = std::make_unique<libremidi::observer>(obsConf, libremidi::midi2::observer_default_configuration());
         
         // Create MIDI input with UMP callback configuration
-        libremidi::ump_input_configuration inConf;
-        inConf.on_message = [this](libremidi::ump&& packet) {
-            onMidiInput(std::move(packet));
+        libremidi::ump_input_configuration inConf {
+            .on_message = [this](libremidi::ump&& packet) {
+                onMidiInput(std::move(packet));
+            },
+            .ignore_sysex = false
         };
-        
+
         midiIn = std::make_unique<libremidi::midi_in>(inConf, libremidi::midi2::in_default_configuration());
         
         // Create MIDI output with UMP configuration
