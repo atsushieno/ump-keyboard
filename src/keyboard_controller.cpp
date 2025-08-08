@@ -414,31 +414,19 @@ void KeyboardController::setMidiCIDevicesChangedCallback(std::function<void()> c
     }
 }
 
-// MIDI-CI Property methods
-void KeyboardController::requestAllCtrlList(uint32_t muid) {
-    if (midiCIManager && midiCIManager->isInitialized()) {
-        midiCIManager->requestAllCtrlList(muid);
-    }
-}
-
-void KeyboardController::requestProgramList(uint32_t muid) {
-    if (midiCIManager && midiCIManager->isInitialized()) {
-        midiCIManager->requestProgramList(muid);
-    }
-}
-
-std::vector<midicci::commonproperties::MidiCIControl> KeyboardController::getAllCtrlList(uint32_t muid) {
+// MIDI-CI Property methods - simplified API using PropertyClientFacade
+std::optional<std::vector<midicci::commonproperties::MidiCIControl>> KeyboardController::getAllCtrlList(uint32_t muid) {
     if (midiCIManager && midiCIManager->isInitialized()) {
         return midiCIManager->getAllCtrlList(muid);
     }
-    return {};
+    return std::nullopt;
 }
 
-std::vector<midicci::commonproperties::MidiCIProgram> KeyboardController::getProgramList(uint32_t muid) {
+std::optional<std::vector<midicci::commonproperties::MidiCIProgram>> KeyboardController::getProgramList(uint32_t muid) {
     if (midiCIManager && midiCIManager->isInitialized()) {
         return midiCIManager->getProgramList(muid);
     }
-    return {};
+    return std::nullopt;
 }
 
 void KeyboardController::setMidiCIPropertiesChangedCallback(std::function<void(uint32_t)> callback) {
@@ -448,11 +436,6 @@ void KeyboardController::setMidiCIPropertiesChangedCallback(std::function<void(u
     }
 }
 
-void KeyboardController::resetPropertyRequestState(uint32_t muid) {
-    if (midiCIManager && midiCIManager->isInitialized()) {
-        midiCIManager->resetPropertyRequestState(muid);
-    }
-}
 
 bool KeyboardController::hasValidMidiPair() const {
     return midiIn && midiIn->is_port_open() && midiOut && midiOut->is_port_open();

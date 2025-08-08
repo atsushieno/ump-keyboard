@@ -37,12 +37,10 @@ public:
     void setMidiCIUpdateCallback(std::function<void()> callback);
     void setMidiCIDeviceProvider(std::function<MidiCIDeviceInfo*(uint32_t)> provider);
     
-    // Property management
-    void setPropertyRequestCallback(std::function<void(uint32_t, const std::string&)> callback);
-    void setPropertyDataProvider(std::function<std::vector<midicci::commonproperties::MidiCIControl>(uint32_t)> ctrlProvider,
-                                std::function<std::vector<midicci::commonproperties::MidiCIProgram>(uint32_t)> progProvider);
+    // Property management - updated for simplified API
+    void setPropertyDataProvider(std::function<std::optional<std::vector<midicci::commonproperties::MidiCIControl>>(uint32_t)> ctrlProvider,
+                                std::function<std::optional<std::vector<midicci::commonproperties::MidiCIProgram>>(uint32_t)> progProvider);
     void updateProperties(uint32_t muid);
-    void setPropertyResetCallback(std::function<void(uint32_t)> callback);
 
 signals:
     void midiInputDeviceChanged(const QString& deviceId);
@@ -76,10 +74,8 @@ private:
     std::function<void()> midiCIDiscoveryCallback;
     std::function<void()> midiCIUpdateCallback;
     std::function<MidiCIDeviceInfo*(uint32_t)> midiCIDeviceProvider;
-    std::function<void(uint32_t, const std::string&)> propertyRequestCallback;
-    std::function<std::vector<midicci::commonproperties::MidiCIControl>(uint32_t)> ctrlListProvider;
-    std::function<std::vector<midicci::commonproperties::MidiCIProgram>(uint32_t)> programListProvider;
-    std::function<void(uint32_t)> propertyResetCallback;
+    std::function<std::optional<std::vector<midicci::commonproperties::MidiCIControl>>(uint32_t)> ctrlListProvider;
+    std::function<std::optional<std::vector<midicci::commonproperties::MidiCIProgram>>(uint32_t)> programListProvider;
     
     QVBoxLayout* mainLayout;
     QWidget* keyboardWidget;

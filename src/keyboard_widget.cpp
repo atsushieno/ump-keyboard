@@ -554,28 +554,19 @@ void KeyboardWidget::onMidiCIDeviceSelected(int index) {
     }
 }
 
-// Property management methods
-void KeyboardWidget::setPropertyRequestCallback(std::function<void(uint32_t, const std::string&)> callback) {
-    propertyRequestCallback = callback;
-}
-
-void KeyboardWidget::setPropertyDataProvider(std::function<std::vector<midicci::commonproperties::MidiCIControl>(uint32_t)> ctrlProvider,
-                                            std::function<std::vector<midicci::commonproperties::MidiCIProgram>(uint32_t)> progProvider) {
+// Property management methods - updated for simplified API
+void KeyboardWidget::setPropertyDataProvider(std::function<std::optional<std::vector<midicci::commonproperties::MidiCIControl>>(uint32_t)> ctrlProvider,
+                                            std::function<std::optional<std::vector<midicci::commonproperties::MidiCIProgram>>(uint32_t)> progProvider) {
     ctrlListProvider = ctrlProvider;
     programListProvider = progProvider;
 }
 
 void KeyboardWidget::refreshProperties() {
-    if (selectedDeviceMuid == 0 || !propertyRequestCallback) {
+    if (selectedDeviceMuid == 0) {
         return;
     }
     
     std::cout << "[UI] Force refreshing properties for MUID: 0x" << std::hex << selectedDeviceMuid << std::dec << std::endl;
-    
-    // Reset the property request state to force new requests
-    if (propertyResetCallback) {
-        propertyResetCallback(selectedDeviceMuid);
-    }
     
     // Clear current lists and show loading
     controlListWidget->clear();
@@ -583,14 +574,10 @@ void KeyboardWidget::refreshProperties() {
     programListWidget->clear();
     programListWidget->addItem("Loading programs...");
     
-    // Request both types of properties (these will now be sent since state was reset)
-    propertyRequestCallback(selectedDeviceMuid, "AllCtrlList");
-    propertyRequestCallback(selectedDeviceMuid, "ProgramList");
+    // Request properties by calling updateProperties - this will trigger new requests if needed
+    updateProperties(selectedDeviceMuid);
 }
 
-void KeyboardWidget::setPropertyResetCallback(std::function<void(uint32_t)> callback) {
-    propertyResetCallback = callback;
-}
 
 void KeyboardWidget::updateProperties(uint32_t muid) {
     if (muid != selectedDeviceMuid) {
@@ -599,58 +586,70 @@ void KeyboardWidget::updateProperties(uint32_t muid) {
     
     // Update control list
     if (ctrlListProvider) {
-        auto controls = ctrlListProvider(muid);
+        auto controls_opt = ctrlListProvider(muid);
         controlListWidget->clear();
         
-        if (controls.empty()) {
-            controlListWidget->addItem("No controls available");
+        if (!controls_opt.has_value()) {
+            controlListWidget->addItem("Loading controls...");
             controlListWidget->setEnabled(false);
         } else {
-            controlListWidget->setEnabled(true);
-            for (const auto& ctrl : controls) {
-                QString displayText;
-                
-                // Format: [type] title (ch: X, default: Y)
-                QString ctrlType = QString::fromStdString(ctrl.ctrlType);
-                QString title = QString::fromStdString(ctrl.title);
-                QString channel = ctrl.channel.has_value() ? QString::number(*ctrl.channel) : "All";
-                QString defaultVal = QString::number(ctrl.defaultValue);
-                
-                displayText = QString("[%1] %2 (ch: %3, default: %4)")
-                             .arg(ctrlType, title, channel, defaultVal);
-                
-                controlListWidget->addItem(displayText);
+            auto controls = controls_opt.value();
+            if (controls.empty()) {
+                controlListWidget->addItem("No controls available");
+                controlListWidget->setEnabled(false);
+            } else {
+                controlListWidget->setEnabled(true);
+                for (const auto& ctrl : controls) {
+                    QString displayText;
+                    
+                    // Format: [type] title (ch: X, default: Y)
+                    QString ctrlType = QString::fromStdString(ctrl.ctrlType);
+                    QString title = QString::fromStdString(ctrl.title);
+                    QString channel = ctrl.channel.has_value() ? QString::number(*ctrl.channel) : "All";
+                    QString defaultVal = QString::number(ctrl.defaultValue);
+                    
+                    displayText = QString("[%1] %2 (ch: %3, default: %4)")
+                                 .arg(ctrlType, title, channel, defaultVal);
+                    
+                    controlListWidget->addItem(displayText);
+                }
             }
         }
     }
     
     // Update program list
     if (programListProvider) {
-        auto programs = programListProvider(muid);
+        auto programs_opt = programListProvider(muid);
         programListWidget->clear();
         
-        if (programs.empty()) {
-            programListWidget->addItem("No programs available");
+        if (!programs_opt.has_value()) {
+            programListWidget->addItem("Loading programs...");
             programListWidget->setEnabled(false);
         } else {
-            programListWidget->setEnabled(true);
-            for (const auto& prog : programs) {
-                QString displayText;
-                
-                // Format: title [bank:PC = X:Y:Z]
-                QString title = QString::fromStdString(prog.title);
-                
-                if (prog.bankPC.size() >= 3) {
-                    displayText = QString("%1 [bank:PC = %2:%3:%4]")
-                                 .arg(title)
-                                 .arg(prog.bankPC[0])
-                                 .arg(prog.bankPC[1])
-                                 .arg(prog.bankPC[2]);
-                } else {
-                    displayText = title;
+            auto programs = programs_opt.value();
+            if (programs.empty()) {
+                programListWidget->addItem("No programs available");
+                programListWidget->setEnabled(false);
+            } else {
+                programListWidget->setEnabled(true);
+                for (const auto& prog : programs) {
+                    QString displayText;
+                    
+                    // Format: title [bank:PC = X:Y:Z]
+                    QString title = QString::fromStdString(prog.title);
+                    
+                    if (prog.bankPC.size() >= 3) {
+                        displayText = QString("%1 [bank:PC = %2:%3:%4]")
+                                     .arg(title)
+                                     .arg(prog.bankPC[0])
+                                     .arg(prog.bankPC[1])
+                                     .arg(prog.bankPC[2]);
+                    } else {
+                        displayText = title;
+                    }
+                    
+                    programListWidget->addItem(displayText);
                 }
-                
-                programListWidget->addItem(displayText);
             }
         }
     }

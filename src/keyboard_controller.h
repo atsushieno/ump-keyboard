@@ -37,13 +37,10 @@ public:
     std::string getMidiCIDeviceName() const;
     void setMidiCIDevicesChangedCallback(std::function<void()> callback);
     
-    // MIDI-CI Property functionality  
-    void requestAllCtrlList(uint32_t muid);
-    void requestProgramList(uint32_t muid);
-    std::vector<midicci::commonproperties::MidiCIControl> getAllCtrlList(uint32_t muid);
-    std::vector<midicci::commonproperties::MidiCIProgram> getProgramList(uint32_t muid);
+    // MIDI-CI Property functionality - simplified API using PropertyClientFacade
+    std::optional<std::vector<midicci::commonproperties::MidiCIControl>> getAllCtrlList(uint32_t muid);
+    std::optional<std::vector<midicci::commonproperties::MidiCIProgram>> getProgramList(uint32_t muid);
     void setMidiCIPropertiesChangedCallback(std::function<void(uint32_t)> callback);
-    void resetPropertyRequestState(uint32_t muid);
     
     // MIDI connection state
     bool hasValidMidiPair() const;

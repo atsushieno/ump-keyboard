@@ -59,17 +59,7 @@ int main(int argc, char** argv) {
         return controller.getMidiCIDeviceByMuid(muid);
     });
     
-    // Set up property request callback
-    keyboard.setPropertyRequestCallback([&controller](uint32_t muid, const std::string& propertyType) {
-        std::cout << "Requesting " << propertyType << " from MUID: 0x" << std::hex << muid << std::dec << std::endl;
-        if (propertyType == "AllCtrlList") {
-            controller.requestAllCtrlList(muid);
-        } else if (propertyType == "ProgramList") {
-            controller.requestProgramList(muid);
-        }
-    });
-    
-    // Set up property data providers
+    // Set up property data providers - simplified API automatically handles requests
     keyboard.setPropertyDataProvider(
         [&controller](uint32_t muid) { return controller.getAllCtrlList(muid); },
         [&controller](uint32_t muid) { return controller.getProgramList(muid); }
@@ -81,11 +71,6 @@ int main(int argc, char** argv) {
         keyboard.onPropertiesUpdated(muid);
     });
     
-    // Set up property reset callback
-    keyboard.setPropertyResetCallback([&controller](uint32_t muid) {
-        std::cout << "Resetting property request state for MUID: 0x" << std::hex << muid << std::dec << std::endl;
-        controller.resetPropertyRequestState(muid);
-    });
     
     // Set up MIDI connection state change callback for auto-discovery
     controller.setMidiConnectionChangedCallback([&controller, &keyboard](bool hasValidPair) {
