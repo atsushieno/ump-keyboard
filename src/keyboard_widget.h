@@ -8,6 +8,8 @@
 #include <QtWidgets/QProgressBar>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QGroupBox>
+#include <QtWidgets/QListWidget>
+#include <QtWidgets/QSplitter>
 #include <QtCore/QSignalMapper>
 #include <QtCore/QTimer>
 #include <functional>
@@ -34,6 +36,13 @@ public:
     void setMidiCIDiscoveryCallback(std::function<void()> callback);
     void setMidiCIUpdateCallback(std::function<void()> callback);
     void setMidiCIDeviceProvider(std::function<MidiCIDeviceInfo*(uint32_t)> provider);
+    
+    // Property management
+    void setPropertyRequestCallback(std::function<void(uint32_t, const std::string&)> callback);
+    void setPropertyDataProvider(std::function<std::vector<midicci::commonproperties::MidiCIControl>(uint32_t)> ctrlProvider,
+                                std::function<std::vector<midicci::commonproperties::MidiCIProgram>(uint32_t)> progProvider);
+    void updateProperties(uint32_t muid);
+    void setPropertyResetCallback(std::function<void(uint32_t)> callback);
 
 signals:
     void midiInputDeviceChanged(const QString& deviceId);
@@ -48,12 +57,17 @@ private slots:
     void sendMidiCIDiscovery();
     void updateMidiCIPeriodically();
     void onMidiCIDeviceSelected(int index);
+    void refreshProperties();
+
+public slots:
+    void onPropertiesUpdated(uint32_t muid);
 
 private:
     void setupUI();
     void setupKeyboard();
     void setupDeviceSelectors();
     void setupMidiCIControls();
+    void setupPropertiesPanel();
     QWidget* createKeyboardWidget();
     
     std::function<void(int)> keyPressedCallback;
@@ -62,6 +76,10 @@ private:
     std::function<void()> midiCIDiscoveryCallback;
     std::function<void()> midiCIUpdateCallback;
     std::function<MidiCIDeviceInfo*(uint32_t)> midiCIDeviceProvider;
+    std::function<void(uint32_t, const std::string&)> propertyRequestCallback;
+    std::function<std::vector<midicci::commonproperties::MidiCIControl>(uint32_t)> ctrlListProvider;
+    std::function<std::vector<midicci::commonproperties::MidiCIProgram>(uint32_t)> programListProvider;
+    std::function<void(uint32_t)> propertyResetCallback;
     
     QVBoxLayout* mainLayout;
     QWidget* keyboardWidget;
@@ -83,6 +101,15 @@ private:
     QPushButton* midiCIDiscoveryButton;
     QComboBox* midiCIDeviceCombo;
     QLabel* midiCISelectedDeviceInfo;
+    
+    // Properties UI elements
+    QSplitter* mainSplitter;
+    QGroupBox* propertiesGroup;
+    QPushButton* refreshPropertiesButton;
+    QListWidget* controlListWidget;
+    QListWidget* programListWidget;
+    
+    uint32_t selectedDeviceMuid;
     
     QList<PianoKey*> whiteKeys;
     QList<PianoKey*> blackKeys;

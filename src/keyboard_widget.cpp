@@ -2,6 +2,7 @@
 #include <QtWidgets/QSpacerItem>
 #include <QtWidgets/QGridLayout>
 #include <QtCore/QDebug>
+#include <iostream>
 
 class PianoKey : public QPushButton {
     Q_OBJECT
@@ -65,7 +66,8 @@ private:
 };
 
 KeyboardWidget::KeyboardWidget(QWidget* parent) 
-    : QWidget(parent), pressMapper(new QSignalMapper(this)), releaseMapper(new QSignalMapper(this)) {
+    : QWidget(parent), pressMapper(new QSignalMapper(this)), releaseMapper(new QSignalMapper(this)), 
+      selectedDeviceMuid(0) {
     setupUI();
     
     connect(pressMapper, &QSignalMapper::mappedInt, this, &KeyboardWidget::onKeyPressed);
@@ -78,7 +80,9 @@ KeyboardWidget::KeyboardWidget(QWidget* parent)
 }
 
 void KeyboardWidget::setupUI() {
-    setFixedSize(900, 400);
+    // Make window resizable instead of fixed size
+    setMinimumSize(900, 600);
+    resize(1200, 800);
     setWindowTitle("UMP Keyboard - MIDI 2.0 Virtual Piano");
     
     mainLayout = new QVBoxLayout(this);
@@ -91,14 +95,38 @@ void KeyboardWidget::setupUI() {
     titleLabel->setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 10px;");
     mainLayout->addWidget(titleLabel);
     
+    // Create main splitter for resizable layout
+    mainSplitter = new QSplitter(Qt::Vertical, this);
+    
+    // Top section with devices and controls
+    QWidget* topSection = new QWidget();
+    QVBoxLayout* topLayout = new QVBoxLayout(topSection);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    
     // Device selectors
     setupDeviceSelectors();
+    topLayout->addWidget(deviceGroup);
     
     // MIDI-CI controls
     setupMidiCIControls();
+    topLayout->addWidget(midiCIGroup);
     
     // Keyboard
     setupKeyboard();
+    topLayout->addWidget(keyboardWidget);
+    
+    mainSplitter->addWidget(topSection);
+    
+    // Properties panel
+    setupPropertiesPanel();
+    mainSplitter->addWidget(propertiesGroup);
+    
+    // Set initial splitter sizes (top section larger)
+    mainSplitter->setSizes({400, 200});
+    mainSplitter->setStretchFactor(0, 1);
+    mainSplitter->setStretchFactor(1, 1);
+    
+    mainLayout->addWidget(mainSplitter);
     
     // Controls
     controlsLayout = new QHBoxLayout();
@@ -367,6 +395,58 @@ void KeyboardWidget::setupMidiCIControls() {
     mainLayout->addWidget(midiCIGroup);
 }
 
+void KeyboardWidget::setupPropertiesPanel() {
+    propertiesGroup = new QGroupBox("MIDI-CI Properties");
+    QVBoxLayout* propertiesLayout = new QVBoxLayout(propertiesGroup);
+    propertiesLayout->setSpacing(10);
+    
+    // Header with refresh button
+    QHBoxLayout* headerLayout = new QHBoxLayout();
+    QLabel* headerLabel = new QLabel("Standard Properties");
+    headerLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
+    headerLayout->addWidget(headerLabel);
+    headerLayout->addStretch();
+    
+    refreshPropertiesButton = new QPushButton("Refresh Properties");
+    refreshPropertiesButton->setEnabled(false);
+    refreshPropertiesButton->setMaximumWidth(150);
+    refreshPropertiesButton->setToolTip("Click to request properties again (forces new requests)");
+    connect(refreshPropertiesButton, &QPushButton::clicked, this, &KeyboardWidget::refreshProperties);
+    headerLayout->addWidget(refreshPropertiesButton);
+    propertiesLayout->addLayout(headerLayout);
+    
+    // Create horizontal layout for the two property lists
+    QHBoxLayout* listsLayout = new QHBoxLayout();
+    
+    // Control List section
+    QVBoxLayout* controlLayout = new QVBoxLayout();
+    QLabel* controlLabel = new QLabel("All Controls");
+    controlLabel->setStyleSheet("font-weight: bold;");
+    controlLayout->addWidget(controlLabel);
+    
+    controlListWidget = new QListWidget();
+    controlListWidget->setMinimumHeight(150);
+    controlListWidget->addItem("No device selected");
+    controlListWidget->setEnabled(false);
+    controlLayout->addWidget(controlListWidget);
+    listsLayout->addLayout(controlLayout);
+    
+    // Program List section
+    QVBoxLayout* programLayout = new QVBoxLayout();
+    QLabel* programLabel = new QLabel("Programs");
+    programLabel->setStyleSheet("font-weight: bold;");
+    programLayout->addWidget(programLabel);
+    
+    programListWidget = new QListWidget();
+    programListWidget->setMinimumHeight(150);
+    programListWidget->addItem("No device selected");
+    programListWidget->setEnabled(false);
+    programLayout->addWidget(programListWidget);
+    listsLayout->addLayout(programLayout);
+    
+    propertiesLayout->addLayout(listsLayout);
+}
+
 void KeyboardWidget::updateMidiCIStatus(bool initialized, uint32_t muid, const std::string& deviceName) {
     if (initialized) {
         midiCIStatusLabel->setText("Initialized");
@@ -455,6 +535,129 @@ void KeyboardWidget::onMidiCIDeviceSelected(int index) {
     } else {
         midiCISelectedDeviceInfo->setText("Device information not available");
     }
+    
+    // Update selected device MUID for property requests
+    uint32_t previousDeviceMuid = selectedDeviceMuid;
+    selectedDeviceMuid = muid;
+    
+    // Enable property refresh button
+    refreshPropertiesButton->setEnabled(true);
+    
+    // Only automatically refresh properties if this is a different device
+    if (muid != previousDeviceMuid && muid != 0) {
+        std::cout << "[UI] Auto-refreshing properties for newly selected device MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        refreshProperties();
+    } else if (muid == previousDeviceMuid) {
+        std::cout << "[UI] Same device selected, not auto-refreshing properties" << std::endl;
+        // Just update the display with existing data
+        updateProperties(muid);
+    }
+}
+
+// Property management methods
+void KeyboardWidget::setPropertyRequestCallback(std::function<void(uint32_t, const std::string&)> callback) {
+    propertyRequestCallback = callback;
+}
+
+void KeyboardWidget::setPropertyDataProvider(std::function<std::vector<midicci::commonproperties::MidiCIControl>(uint32_t)> ctrlProvider,
+                                            std::function<std::vector<midicci::commonproperties::MidiCIProgram>(uint32_t)> progProvider) {
+    ctrlListProvider = ctrlProvider;
+    programListProvider = progProvider;
+}
+
+void KeyboardWidget::refreshProperties() {
+    if (selectedDeviceMuid == 0 || !propertyRequestCallback) {
+        return;
+    }
+    
+    std::cout << "[UI] Force refreshing properties for MUID: 0x" << std::hex << selectedDeviceMuid << std::dec << std::endl;
+    
+    // Reset the property request state to force new requests
+    if (propertyResetCallback) {
+        propertyResetCallback(selectedDeviceMuid);
+    }
+    
+    // Clear current lists and show loading
+    controlListWidget->clear();
+    controlListWidget->addItem("Loading controls...");
+    programListWidget->clear();
+    programListWidget->addItem("Loading programs...");
+    
+    // Request both types of properties (these will now be sent since state was reset)
+    propertyRequestCallback(selectedDeviceMuid, "AllCtrlList");
+    propertyRequestCallback(selectedDeviceMuid, "ProgramList");
+}
+
+void KeyboardWidget::setPropertyResetCallback(std::function<void(uint32_t)> callback) {
+    propertyResetCallback = callback;
+}
+
+void KeyboardWidget::updateProperties(uint32_t muid) {
+    if (muid != selectedDeviceMuid) {
+        return; // Not for the currently selected device
+    }
+    
+    // Update control list
+    if (ctrlListProvider) {
+        auto controls = ctrlListProvider(muid);
+        controlListWidget->clear();
+        
+        if (controls.empty()) {
+            controlListWidget->addItem("No controls available");
+            controlListWidget->setEnabled(false);
+        } else {
+            controlListWidget->setEnabled(true);
+            for (const auto& ctrl : controls) {
+                QString displayText;
+                
+                // Format: [type] title (ch: X, default: Y)
+                QString ctrlType = QString::fromStdString(ctrl.ctrlType);
+                QString title = QString::fromStdString(ctrl.title);
+                QString channel = ctrl.channel.has_value() ? QString::number(*ctrl.channel) : "All";
+                QString defaultVal = QString::number(ctrl.defaultValue);
+                
+                displayText = QString("[%1] %2 (ch: %3, default: %4)")
+                             .arg(ctrlType, title, channel, defaultVal);
+                
+                controlListWidget->addItem(displayText);
+            }
+        }
+    }
+    
+    // Update program list
+    if (programListProvider) {
+        auto programs = programListProvider(muid);
+        programListWidget->clear();
+        
+        if (programs.empty()) {
+            programListWidget->addItem("No programs available");
+            programListWidget->setEnabled(false);
+        } else {
+            programListWidget->setEnabled(true);
+            for (const auto& prog : programs) {
+                QString displayText;
+                
+                // Format: title [bank:PC = X:Y:Z]
+                QString title = QString::fromStdString(prog.title);
+                
+                if (prog.bankPC.size() >= 3) {
+                    displayText = QString("%1 [bank:PC = %2:%3:%4]")
+                                 .arg(title)
+                                 .arg(prog.bankPC[0])
+                                 .arg(prog.bankPC[1])
+                                 .arg(prog.bankPC[2]);
+                } else {
+                    displayText = title;
+                }
+                
+                programListWidget->addItem(displayText);
+            }
+        }
+    }
+}
+
+void KeyboardWidget::onPropertiesUpdated(uint32_t muid) {
+    updateProperties(muid);
 }
 
 #include "keyboard_widget.moc"

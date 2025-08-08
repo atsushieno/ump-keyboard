@@ -1,7 +1,10 @@
 #include "midi_ci_manager.h"
 #include <iostream>
+#include <iomanip>
 #include <random>
 #include <chrono>
+
+using namespace midicci::commonproperties;
 
 MidiCIManager::MidiCIManager() 
     : muid_(0), initialized_(false) {
@@ -171,6 +174,10 @@ void MidiCIManager::setDevicesChangedCallback(DevicesChangedCallback callback) {
     devices_changed_callback_ = callback;
 }
 
+void MidiCIManager::setPropertiesChangedCallback(std::function<void(uint32_t)> callback) {
+    properties_changed_callback_ = callback;
+}
+
 uint32_t MidiCIManager::getMuid() const {
     return muid_;
 }
@@ -219,7 +226,16 @@ void MidiCIManager::setupCallbacks() {
     
     // Set up message callback for outgoing messages
     device_->set_message_callback([this](const midicci::Message& message) {
-        log("MIDI-CI Message sent: " + std::to_string(static_cast<int>(message.get_type())), true); // outgoing
+        std::string msgTypeName;
+        switch(message.get_type()) {
+            case midicci::MessageType::DiscoveryInquiry: msgTypeName = "DiscoveryInquiry"; break;
+            case midicci::MessageType::DiscoveryReply: msgTypeName = "DiscoveryReply"; break;
+            case midicci::MessageType::GetPropertyData: msgTypeName = "GetPropertyData"; break;
+            case midicci::MessageType::GetPropertyDataReply: msgTypeName = "GetPropertyDataReply"; break;
+            default: msgTypeName = "Unknown(" + std::to_string(static_cast<int>(message.get_type())) + ")"; break;
+        }
+        log("MIDI-CI Message sent: " + msgTypeName, true); // outgoing
+        std::cout << "[MIDI-CI SENT] " << msgTypeName << " to MUID: 0x" << std::hex << message.get_destination_muid() << std::dec << std::endl;
     });
     
     // Set up message received callback
@@ -227,8 +243,23 @@ void MidiCIManager::setupCallbacks() {
         std::cout << "[UMP-KEYBOARD RECV] Message type: " << static_cast<int>(message.get_type()) << std::endl;
         log("MIDI-CI Message received: " + std::to_string(static_cast<int>(message.get_type())), false); // incoming
         
+        // Handle GetPropertyDataReply messages for property retrieval
+        if (message.get_type() == midicci::MessageType::GetPropertyDataReply) {
+            std::cout << "[PROPERTY REPLY] Processing GetPropertyDataReply message" << std::endl;
+            
+            try {
+                const auto* property_reply = dynamic_cast<const midicci::GetPropertyDataReply*>(&message);
+                if (property_reply) {
+                    handleGetPropertyDataReply(*property_reply);
+                } else {
+                    std::cout << "[PROPERTY REPLY ERROR] Failed to cast to GetPropertyDataReply" << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[MIDI-CI ERROR] Error processing property data reply: " << e.what() << std::endl;
+            }
+        }
         // Handle Discovery Reply messages to populate device list
-        if (message.get_type() == midicci::MessageType::DiscoveryReply) {
+        else if (message.get_type() == midicci::MessageType::DiscoveryReply) {
             std::cout << "[DISCOVERY REPLY] Processing discovery reply message" << std::endl;
             
             // Try to cast to DiscoveryReply to get device details
@@ -308,4 +339,198 @@ void MidiCIManager::log(const std::string& message, bool is_outgoing) {
     } else {
         std::cout << full_message << std::endl;
     }
+}
+
+// Property management methods
+void MidiCIManager::requestAllCtrlList(uint32_t muid) {
+    if (!initialized_ || !device_) {
+        std::cerr << "[MIDI-CI ERROR] Cannot request properties - not initialized" << std::endl;
+        return;
+    }
+    
+    // Check if we already requested this property
+    auto& state = property_request_states_[muid];
+    if (state.ctrl_list_requested) {
+        if (state.ctrl_list_received) {
+            std::cout << "[PROPERTY REQUEST] AllCtrlList already received for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        } else {
+            std::cout << "[PROPERTY REQUEST] AllCtrlList request already sent for MUID: 0x" << std::hex << muid << std::dec << ", waiting for reply..." << std::endl;
+        }
+        return;
+    }
+    
+    std::cout << "[PROPERTY REQUEST] Requesting AllCtrlList from MUID: 0x" << std::hex << muid << std::dec << std::endl;
+    
+    try {
+        // Create Common struct for the message
+        midicci::Common common(muid_, muid, 0, 0);
+        
+        // Create a GetPropertyData message
+        midicci::GetPropertyData request(common, 1, StandardPropertyNames::ALL_CTRL_LIST, "");
+        
+        // Send the message using the device's messenger
+        device_->get_messenger().send(request);
+        
+        // Mark as requested
+        state.ctrl_list_requested = true;
+        
+        log("Sent AllCtrlList property request for MUID 0x" + std::to_string(muid), true);
+        std::cout << "[PROPERTY REQUEST] AllCtrlList request sent successfully" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "[MIDI-CI ERROR] Failed to request AllCtrlList: " << e.what() << std::endl;
+        // Reset request state on error
+        state.ctrl_list_requested = false;
+    }
+}
+
+void MidiCIManager::requestProgramList(uint32_t muid) {
+    if (!initialized_ || !device_) {
+        std::cerr << "[MIDI-CI ERROR] Cannot request properties - not initialized" << std::endl;
+        return;
+    }
+    
+    // Check if we already requested this property
+    auto& state = property_request_states_[muid];
+    if (state.program_list_requested) {
+        if (state.program_list_received) {
+            std::cout << "[PROPERTY REQUEST] ProgramList already received for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        } else {
+            std::cout << "[PROPERTY REQUEST] ProgramList request already sent for MUID: 0x" << std::hex << muid << std::dec << ", waiting for reply..." << std::endl;
+        }
+        return;
+    }
+    
+    std::cout << "[PROPERTY REQUEST] Requesting ProgramList from MUID: 0x" << std::hex << muid << std::dec << std::endl;
+    
+    try {
+        // Create Common struct for the message
+        midicci::Common common(muid_, muid, 0, 0);
+        
+        // Create a GetPropertyData message
+        midicci::GetPropertyData request(common, 2, StandardPropertyNames::PROGRAM_LIST, "");
+        
+        // Send the message using the device's messenger
+        device_->get_messenger().send(request);
+        
+        // Mark as requested
+        state.program_list_requested = true;
+        
+        log("Sent ProgramList property request for MUID 0x" + std::to_string(muid), true);
+        std::cout << "[PROPERTY REQUEST] ProgramList request sent successfully" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "[MIDI-CI ERROR] Failed to request ProgramList: " << e.what() << std::endl;
+        // Reset request state on error
+        state.program_list_requested = false;
+    }
+}
+
+std::vector<midicci::commonproperties::MidiCIControl> MidiCIManager::getAllCtrlList(uint32_t muid) {
+    auto it = device_ctrl_lists_.find(muid);
+    if (it != device_ctrl_lists_.end()) {
+        return it->second;
+    }
+    return {};
+}
+
+std::vector<midicci::commonproperties::MidiCIProgram> MidiCIManager::getProgramList(uint32_t muid) {
+    auto it = device_program_lists_.find(muid);
+    if (it != device_program_lists_.end()) {
+        return it->second;
+    }
+    return {};
+}
+
+void MidiCIManager::setupPropertyClientForDevice(uint32_t muid) {
+    // This method is now simplified since we're using direct message sending
+    // Just ensure we have storage slots for this device
+    if (device_ctrl_lists_.find(muid) == device_ctrl_lists_.end()) {
+        device_ctrl_lists_[muid] = {};
+    }
+    if (device_program_lists_.find(muid) == device_program_lists_.end()) {
+        device_program_lists_[muid] = {};
+    }
+}
+
+void MidiCIManager::handleGetPropertyDataReply(const midicci::GetPropertyDataReply& msg) {
+    uint32_t source_muid = msg.get_source_muid();
+    
+    std::cout << "[PROPERTY REPLY] Received property data reply from MUID: 0x" << std::hex << source_muid << std::dec << std::endl;
+    
+    try {
+        // Get the property data from the message body
+        auto data = msg.get_body();
+        uint8_t request_id = msg.get_request_id();
+        auto header = msg.get_header();
+        
+        std::cout << "[PROPERTY DEBUG] Request ID: " << static_cast<int>(request_id) << std::endl;
+        std::cout << "[PROPERTY DEBUG] Header size: " << header.size() << " bytes" << std::endl;
+        std::cout << "[PROPERTY DEBUG] Body size: " << data.size() << " bytes" << std::endl;
+        
+        // Print first part of body data for debugging
+        if (!data.empty()) {
+            std::cout << "[PROPERTY DEBUG] Body data (first 100 bytes): ";
+            for (size_t i = 0; i < std::min(data.size(), size_t(100)); i++) {
+                if (data[i] >= 32 && data[i] < 127) {
+                    std::cout << static_cast<char>(data[i]);
+                } else {
+                    std::cout << "\\x" << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(data[i]) << std::dec;
+                }
+            }
+            if (data.size() > 100) std::cout << " ... (truncated)";
+            std::cout << std::endl;
+        }
+        
+        // Check if this is AllCtrlList (request_id = 1) or ProgramList (request_id = 2)
+        bool is_ctrl_list = (request_id == 1);
+        bool is_program_list = (request_id == 2);
+        
+        if (is_ctrl_list) {
+            std::cout << "[PROPERTY PARSE] Attempting to parse as AllCtrlList" << std::endl;
+            try {
+                auto controls = StandardProperties::parseControlList(data);
+                std::cout << "[PROPERTY PARSED] Successfully parsed " << controls.size() << " controls for MUID 0x" << std::hex << source_muid << std::dec << std::endl;
+                
+                device_ctrl_lists_[source_muid] = controls;
+                property_request_states_[source_muid].ctrl_list_received = true;
+                
+                if (properties_changed_callback_) {
+                    properties_changed_callback_(source_muid);
+                }
+                return;
+            } catch (const std::exception& e) {
+                std::cerr << "[PROPERTY ERROR] Failed to parse control list: " << e.what() << std::endl;
+            }
+        } else if (is_program_list) {
+            std::cout << "[PROPERTY PARSE] Attempting to parse as ProgramList" << std::endl;
+            try {
+                auto programs = StandardProperties::parseProgramList(data);
+                std::cout << "[PROPERTY PARSED] Successfully parsed " << programs.size() << " programs for MUID 0x" << std::hex << source_muid << std::dec << std::endl;
+                
+                device_program_lists_[source_muid] = programs;
+                property_request_states_[source_muid].program_list_received = true;
+                
+                if (properties_changed_callback_) {
+                    properties_changed_callback_(source_muid);
+                }
+                return;
+            } catch (const std::exception& e) {
+                std::cerr << "[PROPERTY ERROR] Failed to parse program list: " << e.what() << std::endl;
+            }
+        } else {
+            std::cout << "[PROPERTY WARNING] Unknown property type with request ID: " << static_cast<int>(request_id) << std::endl;
+        }
+        
+        // If we get here, parsing failed
+        std::cout << "[PROPERTY WARNING] Could not parse property data" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "[MIDI-CI ERROR] Error handling property data reply: " << e.what() << std::endl;
+    }
+}
+
+void MidiCIManager::resetPropertyRequestState(uint32_t muid) {
+    std::cout << "[PROPERTY RESET] Resetting property request state for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+    property_request_states_[muid] = PropertyRequestState{}; // Reset to default state
+    device_ctrl_lists_[muid].clear();
+    device_program_lists_[muid].clear();
 }

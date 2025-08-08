@@ -414,6 +414,46 @@ void KeyboardController::setMidiCIDevicesChangedCallback(std::function<void()> c
     }
 }
 
+// MIDI-CI Property methods
+void KeyboardController::requestAllCtrlList(uint32_t muid) {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        midiCIManager->requestAllCtrlList(muid);
+    }
+}
+
+void KeyboardController::requestProgramList(uint32_t muid) {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        midiCIManager->requestProgramList(muid);
+    }
+}
+
+std::vector<midicci::commonproperties::MidiCIControl> KeyboardController::getAllCtrlList(uint32_t muid) {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        return midiCIManager->getAllCtrlList(muid);
+    }
+    return {};
+}
+
+std::vector<midicci::commonproperties::MidiCIProgram> KeyboardController::getProgramList(uint32_t muid) {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        return midiCIManager->getProgramList(muid);
+    }
+    return {};
+}
+
+void KeyboardController::setMidiCIPropertiesChangedCallback(std::function<void(uint32_t)> callback) {
+    midiCIPropertiesChangedCallback = callback;
+    if (midiCIManager) {
+        midiCIManager->setPropertiesChangedCallback(callback);
+    }
+}
+
+void KeyboardController::resetPropertyRequestState(uint32_t muid) {
+    if (midiCIManager && midiCIManager->isInitialized()) {
+        midiCIManager->resetPropertyRequestState(muid);
+    }
+}
+
 bool KeyboardController::hasValidMidiPair() const {
     return midiIn && midiIn->is_port_open() && midiOut && midiOut->is_port_open();
 }
@@ -441,6 +481,12 @@ void KeyboardController::initializeMidiCI() {
         if (!midiCIManager->initialize()) {
             std::cerr << "Failed to initialize MIDI-CI manager" << std::endl;
             midiCIManager.reset();
+        } else {
+            // Set up stored callbacks after successful initialization
+            if (midiCIPropertiesChangedCallback) {
+                midiCIManager->setPropertiesChangedCallback(midiCIPropertiesChangedCallback);
+                std::cout << "[MIDI-CI] Properties changed callback restored after initialization" << std::endl;
+            }
         }
         
     } catch (const std::exception& e) {

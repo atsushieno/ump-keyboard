@@ -59,6 +59,34 @@ int main(int argc, char** argv) {
         return controller.getMidiCIDeviceByMuid(muid);
     });
     
+    // Set up property request callback
+    keyboard.setPropertyRequestCallback([&controller](uint32_t muid, const std::string& propertyType) {
+        std::cout << "Requesting " << propertyType << " from MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        if (propertyType == "AllCtrlList") {
+            controller.requestAllCtrlList(muid);
+        } else if (propertyType == "ProgramList") {
+            controller.requestProgramList(muid);
+        }
+    });
+    
+    // Set up property data providers
+    keyboard.setPropertyDataProvider(
+        [&controller](uint32_t muid) { return controller.getAllCtrlList(muid); },
+        [&controller](uint32_t muid) { return controller.getProgramList(muid); }
+    );
+    
+    // Set up properties changed callback
+    controller.setMidiCIPropertiesChangedCallback([&keyboard](uint32_t muid) {
+        std::cout << "Properties updated for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        keyboard.onPropertiesUpdated(muid);
+    });
+    
+    // Set up property reset callback
+    keyboard.setPropertyResetCallback([&controller](uint32_t muid) {
+        std::cout << "Resetting property request state for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        controller.resetPropertyRequestState(muid);
+    });
+    
     // Set up MIDI connection state change callback for auto-discovery
     controller.setMidiConnectionChangedCallback([&controller, &keyboard](bool hasValidPair) {
         if (hasValidPair && controller.isMidiCIInitialized()) {

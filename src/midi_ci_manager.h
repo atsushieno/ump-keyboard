@@ -5,6 +5,7 @@
 #include <functional>
 #include <string>
 #include <cstdint>
+#include <map>
 #include <midicci/midicci.hpp>
 
 struct MidiCIDeviceInfo {
@@ -64,6 +65,14 @@ public:
     std::string getDeviceName() const;
     bool isInitialized() const;
     
+    // Property management
+    void requestAllCtrlList(uint32_t muid);
+    void requestProgramList(uint32_t muid);
+    std::vector<midicci::commonproperties::MidiCIControl> getAllCtrlList(uint32_t muid);
+    std::vector<midicci::commonproperties::MidiCIProgram> getProgramList(uint32_t muid);
+    void setPropertiesChangedCallback(std::function<void(uint32_t)> callback);
+    void resetPropertyRequestState(uint32_t muid);
+    
 private:
     std::unique_ptr<midicci::MidiCIDevice> device_;
     std::unique_ptr<midicci::MidiCIDeviceConfiguration> config_;
@@ -71,14 +80,33 @@ private:
     SysExSender sysex_sender_;
     LogCallback log_callback_;
     DevicesChangedCallback devices_changed_callback_;
+    std::function<void(uint32_t)> properties_changed_callback_;
     uint32_t muid_;
     bool initialized_;
     
     std::vector<MidiCIDeviceInfo> discovered_devices_;
     
+    // Property storage for each device
+    std::map<uint32_t, std::vector<midicci::commonproperties::MidiCIControl>> device_ctrl_lists_;
+    std::map<uint32_t, std::vector<midicci::commonproperties::MidiCIProgram>> device_program_lists_;
+    std::map<uint32_t, std::unique_ptr<midicci::PropertyClientFacade>> property_clients_;
+    
+    // Request tracking to prevent duplicate requests
+    struct PropertyRequestState {
+        bool ctrl_list_requested = false;
+        bool program_list_requested = false;
+        bool ctrl_list_received = false;
+        bool program_list_received = false;
+    };
+    std::map<uint32_t, PropertyRequestState> property_request_states_;
+    
     // Device configuration helpers
     void setupDeviceConfiguration();
     void setupCallbacks();
+    
+    // Property management helpers
+    void setupPropertyClientForDevice(uint32_t muid);
+    void handleGetPropertyDataReply(const midicci::GetPropertyDataReply& msg);
     
     // Logging helper
     void log(const std::string& message, bool is_outgoing = false);
