@@ -44,15 +44,7 @@ int main(int argc, char** argv) {
         std::cout << "MIDI-CI device list updated" << std::endl;
     });
     
-    // Set up periodic MIDI-CI updates
-    keyboard.setMidiCIUpdateCallback([&controller, &keyboard]() {
-        keyboard.updateMidiCIStatus(
-            controller.isMidiCIInitialized(),
-            controller.getMidiCIMuid(),
-            controller.getMidiCIDeviceName()
-        );
-        keyboard.updateMidiCIDevices(controller.getMidiCIDeviceDetails());
-    });
+    // Removed periodic MIDI-CI updates - now using event-driven callbacks
     
     // Set up MIDI-CI device provider for detailed info
     keyboard.setMidiCIDeviceProvider([&controller](uint32_t muid) -> MidiCIDeviceInfo* {

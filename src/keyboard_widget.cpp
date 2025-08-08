@@ -73,10 +73,7 @@ KeyboardWidget::KeyboardWidget(QWidget* parent)
     connect(pressMapper, &QSignalMapper::mappedInt, this, &KeyboardWidget::onKeyPressed);
     connect(releaseMapper, &QSignalMapper::mappedInt, this, &KeyboardWidget::onKeyReleased);
     
-    // Set up periodic MIDI-CI updates
-    midiCIUpdateTimer = new QTimer(this);
-    connect(midiCIUpdateTimer, &QTimer::timeout, this, &KeyboardWidget::updateMidiCIPeriodically);
-    midiCIUpdateTimer->start(2000); // Update every 2 seconds
+    // Timer-based updates removed - using event-driven updates instead
 }
 
 void KeyboardWidget::setupUI() {
@@ -489,9 +486,6 @@ void KeyboardWidget::setMidiCIDiscoveryCallback(std::function<void()> callback) 
     midiCIDiscoveryCallback = callback;
 }
 
-void KeyboardWidget::setMidiCIUpdateCallback(std::function<void()> callback) {
-    midiCIUpdateCallback = callback;
-}
 
 void KeyboardWidget::setMidiCIDeviceProvider(std::function<MidiCIDeviceInfo*(uint32_t)> provider) {
     midiCIDeviceProvider = provider;
@@ -503,11 +497,6 @@ void KeyboardWidget::sendMidiCIDiscovery() {
     }
 }
 
-void KeyboardWidget::updateMidiCIPeriodically() {
-    if (midiCIUpdateCallback) {
-        midiCIUpdateCallback();
-    }
-}
 
 void KeyboardWidget::onMidiCIDeviceSelected(int index) {
     if (index < 0 || !midiCIDeviceProvider) {

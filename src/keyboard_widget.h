@@ -34,7 +34,6 @@ public:
     void updateMidiCIStatus(bool initialized, uint32_t muid, const std::string& deviceName);
     void updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& discoveredDevices);
     void setMidiCIDiscoveryCallback(std::function<void()> callback);
-    void setMidiCIUpdateCallback(std::function<void()> callback);
     void setMidiCIDeviceProvider(std::function<MidiCIDeviceInfo*(uint32_t)> provider);
     
     // Property management - updated for simplified API
@@ -53,7 +52,6 @@ private slots:
     void onOutputDeviceChanged(int index);
     void refreshDevices();
     void sendMidiCIDiscovery();
-    void updateMidiCIPeriodically();
     void onMidiCIDeviceSelected(int index);
     void refreshProperties();
 
@@ -72,7 +70,6 @@ private:
     std::function<void(int)> keyReleasedCallback;
     std::function<void()> deviceRefreshCallback;
     std::function<void()> midiCIDiscoveryCallback;
-    std::function<void()> midiCIUpdateCallback;
     std::function<MidiCIDeviceInfo*(uint32_t)> midiCIDeviceProvider;
     std::function<std::optional<std::vector<midicci::commonproperties::MidiCIControl>>(uint32_t)> ctrlListProvider;
     std::function<std::optional<std::vector<midicci::commonproperties::MidiCIProgram>>(uint32_t)> programListProvider;
@@ -112,5 +109,4 @@ private:
     
     QSignalMapper* pressMapper;
     QSignalMapper* releaseMapper;
-    QTimer* midiCIUpdateTimer;
 };
