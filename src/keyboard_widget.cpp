@@ -371,7 +371,7 @@ void KeyboardWidget::updateMidiCIStatus(bool initialized, uint32_t muid, const s
     if (initialized) {
         midiCIStatusLabel->setText("Initialized");
         midiCIStatusLabel->setStyleSheet("color: green; font-weight: bold;");
-        midiCIMuidLabel->setText(QString("0x%1 (%2)").arg(muid, 0, 16).arg(muid));
+        midiCIMuidLabel->setText(QString("0x%1 (%2)").arg(CIFactory::midiCI32to28(muid), 0, 16).arg(muid));
         midiCIDeviceNameLabel->setText(QString::fromStdString(deviceName));
         midiCIDiscoveryButton->setEnabled(true);
     } else {

@@ -150,13 +150,14 @@ bool KeyboardController::selectInputDevice(const std::string& deviceId) {
         if (portIndex < ports.size()) {
             midiIn->open_port(ports[portIndex]);
             currentInputDeviceId = deviceId;
-            updateUIConnectionState();
-            
+
             // Reinitialize MIDI-CI when we have a valid MIDI pair
             if (hasValidMidiPair()) {
                 initializeMidiCI();
             }
-            
+
+            updateUIConnectionState();
+
             return true;
         } else {
             return false;
