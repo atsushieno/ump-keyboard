@@ -281,7 +281,13 @@ void KeyboardController::onMidiInput(libremidi::ump&& packet) {
                 }
                 sysex_buffer_.push_back(0xF7); // Add SysEx end
                 
-                processSysExForMidiCI(sysex_buffer_);
+                // Check if this is one of our own outgoing messages to avoid feedback loop
+                if (recentOutgoingSysEx.find(sysex_buffer_) != recentOutgoingSysEx.end()) {
+                    std::cout << "[SYSEX INPUT] Ignoring our own outgoing SysEx message (complete packet)" << std::endl;
+                    recentOutgoingSysEx.erase(sysex_buffer_); // Remove from tracking set
+                } else {
+                    processSysExForMidiCI(sysex_buffer_);
+                }
                 sysex_in_progress_ = false;
                 break;
             }
@@ -329,7 +335,13 @@ void KeyboardController::onMidiInput(libremidi::ump&& packet) {
                 }
                 sysex_buffer_.push_back(0xF7); // Add SysEx end
                 
-                processSysExForMidiCI(sysex_buffer_);
+                // Check if this is one of our own outgoing messages to avoid feedback loop
+                if (recentOutgoingSysEx.find(sysex_buffer_) != recentOutgoingSysEx.end()) {
+                    std::cout << "[SYSEX INPUT] Ignoring our own outgoing SysEx message (multi-packet)" << std::endl;
+                    recentOutgoingSysEx.erase(sysex_buffer_); // Remove from tracking set
+                } else {
+                    processSysExForMidiCI(sysex_buffer_);
+                }
                 sysex_in_progress_ = false;
                 break;
             }
@@ -409,6 +421,7 @@ std::string KeyboardController::getMidiCIDeviceName() const {
 }
 
 void KeyboardController::setMidiCIDevicesChangedCallback(std::function<void()> callback) {
+    midiCIDevicesChangedCallback = callback;
     if (midiCIManager) {
         midiCIManager->setDevicesChangedCallback(callback);
     }
@@ -469,6 +482,10 @@ void KeyboardController::initializeMidiCI() {
             if (midiCIPropertiesChangedCallback) {
                 midiCIManager->setPropertiesChangedCallback(midiCIPropertiesChangedCallback);
                 std::cout << "[MIDI-CI] Properties changed callback restored after initialization" << std::endl;
+            }
+            if (midiCIDevicesChangedCallback) {
+                midiCIManager->setDevicesChangedCallback(midiCIDevicesChangedCallback);
+                std::cout << "[MIDI-CI] Devices changed callback restored after initialization" << std::endl;
             }
         }
         
@@ -537,6 +554,14 @@ bool KeyboardController::sendSysExViaMidi(uint8_t group, const std::vector<uint8
     }
     
     try {
+        // Track this outgoing message to avoid processing it as input
+        recentOutgoingSysEx.insert(data);
+        // Keep only recent messages to prevent memory growth
+        if (recentOutgoingSysEx.size() > 10) {
+            auto it = recentOutgoingSysEx.begin();
+            recentOutgoingSysEx.erase(it);
+        }
+        
         std::cout << "[SYSEX SEND] Sending " << data.size() << " bytes via UMP SYSEX7 using cmidi2" << std::endl;
         
         // Log the complete data being sent

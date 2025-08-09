@@ -464,19 +464,28 @@ void KeyboardWidget::updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& di
     // Clear and repopulate the combobox
     midiCIDeviceCombo->clear();
     
-    if (discoveredDevices.empty()) {
-        midiCIDeviceCombo->addItem("No devices discovered");
+    // Filter to only show endpoint-ready devices
+    std::vector<MidiCIDeviceInfo> readyDevices;
+    for (const auto& device : discoveredDevices) {
+        if (device.endpoint_ready) {
+            readyDevices.push_back(device);
+        }
+    }
+    
+    if (readyDevices.empty()) {
+        midiCIDeviceCombo->addItem("No devices ready");
         midiCIDeviceCombo->setEnabled(false);
-        midiCISelectedDeviceInfo->setText("No MIDI-CI devices discovered. Send discovery to find devices.");
+        midiCISelectedDeviceInfo->setText("MIDI-CI devices discovered but not ready. Waiting for endpoint information...");
     } else {
         midiCIDeviceCombo->setEnabled(true);
-        for (const auto& device : discoveredDevices) {
+        for (const auto& device : readyDevices) {
             QString displayName = QString::fromStdString(device.getDisplayName());
             midiCIDeviceCombo->addItem(displayName, device.muid);
         }
         
-        // Auto-select first device if available
-        if (!discoveredDevices.empty()) {
+        // Auto-select first device if this is the first endpoint-ready device
+        if (midiCIDeviceCombo->count() == 1) {
+            std::cout << "[UI] Auto-selecting first endpoint-ready device" << std::endl;
             onMidiCIDeviceSelected(0);
         }
     }

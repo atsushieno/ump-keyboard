@@ -35,4 +35,16 @@ FetchContent_MakeAvailable(midicci)
 #link_libraries("-fsanitize=address")
 #add_link_options(-fPIC)
 
+# Add GoogleTest for unit testing
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG        v1.14.0
+)
+FetchContent_MakeAvailable(googletest)
+
 add_subdirectory(src/)
+
+# Enable testing and add tests subdirectory
+enable_testing()
+add_subdirectory(tests/)

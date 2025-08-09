@@ -17,11 +17,12 @@ struct MidiCIDeviceInfo {
     std::string version;
     uint8_t supported_features;
     uint32_t max_sysex_size;
+    bool endpoint_ready;  // True when EndpointReply has been received
     
     MidiCIDeviceInfo(uint32_t m, const std::string& name, const std::string& mfg, const std::string& mod, 
                      const std::string& ver, uint8_t features, uint32_t sysex_size)
         : muid(m), device_name(name), manufacturer(mfg), model(mod), version(ver), 
-          supported_features(features), max_sysex_size(sysex_size) {}
+          supported_features(features), max_sysex_size(sysex_size), endpoint_ready(false) {}
     
     std::string getDisplayName() const {
         return model + " (" + manufacturer + ")";

@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <random>
 #include <chrono>
+#include <thread>
 
 using namespace midicci::commonproperties;
 
@@ -243,6 +244,49 @@ void MidiCIManager::setupCallbacks() {
         std::cout << "[UMP-KEYBOARD RECV] Message type: " << static_cast<int>(message.get_type()) << std::endl;
         log("MIDI-CI Message received: " + std::to_string(static_cast<int>(message.get_type())), false); // incoming
         
+        // Handle Endpoint Reply messages to populate device combobox
+        if (message.get_type() == midicci::MessageType::EndpointReply) {
+            std::cout << "[ENDPOINT REPLY] Processing endpoint reply message" << std::endl;
+            
+            try {
+                const auto* endpoint_reply = dynamic_cast<const midicci::EndpointReply*>(&message);
+                if (endpoint_reply) {
+                    uint32_t source_muid = endpoint_reply->get_source_muid();
+                    
+                    std::cout << "[ENDPOINT REPLY] Source MUID: 0x" << std::hex << source_muid << std::dec << " (" << source_muid << ")" << std::endl;
+                    
+                    // Find the device and mark it as endpoint ready
+                    bool found = false;
+                    for (auto& device : discovered_devices_) {
+                        if (device.muid == source_muid) {
+                            std::cout << "[ENDPOINT REPLY] Marking device MUID 0x" << std::hex << source_muid << std::dec << " as endpoint ready" << std::endl;
+                            device.endpoint_ready = true;
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    if (found) {
+                        std::cout << "[ENDPOINT REPLY] Device MUID 0x" << std::hex << source_muid << std::dec << " ready for UI combobox" << std::endl;
+                        
+                        // Notify about device list change to update UI combobox
+                        if (devices_changed_callback_) {
+                            std::cout << "[ENDPOINT REPLY] Calling devices changed callback to update combobox" << std::endl;
+                            devices_changed_callback_();
+                        } else {
+                            std::cout << "[ENDPOINT REPLY] No devices changed callback set" << std::endl;
+                        }
+                    } else {
+                        std::cout << "[ENDPOINT REPLY] WARNING: EndpointReply received for unknown MUID 0x" << std::hex << source_muid << std::dec << std::endl;
+                    }
+                } else {
+                    std::cout << "[ENDPOINT REPLY ERROR] Failed to cast to EndpointReply" << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[MIDI-CI ERROR] Error processing endpoint reply: " << e.what() << std::endl;
+            }
+        }
+        
         // Handle Discovery Reply messages to populate device list
         if (message.get_type() == midicci::MessageType::DiscoveryReply) {
             std::cout << "[DISCOVERY REPLY] Processing discovery reply message" << std::endl;
@@ -360,9 +404,34 @@ std::optional<std::vector<midicci::commonproperties::MidiCIControl>> MidiCIManag
             return ctrl_list;
         } else {
             std::cout << "[PROPERTY ACCESS] AllCtrlList not found in client properties for MUID: 0x" << std::hex << muid << std::dec << std::endl;
-            // Try to request the property if not already available
+            
+            // Check if we have PropertyExchangeCapabilities first
+            std::cout << "[PROPERTY ACCESS] Checking PropertyExchangeCapabilities..." << std::endl;
+            auto pe_caps_it = std::find_if(values.begin(), values.end(),
+                                          [](const midicci::PropertyValue& pv) { 
+                                              return pv.id == "PropertyExchangeCapabilities"; 
+                                          });
+            
+            if (pe_caps_it != values.end()) {
+                std::cout << "[PROPERTY ACCESS] PropertyExchangeCapabilities found, body size: " << pe_caps_it->body.size() << std::endl;
+            } else {
+                std::cout << "[PROPERTY ACCESS] PropertyExchangeCapabilities not found - may be too early" << std::endl;
+            }
+            
+            // Try to request the property if not already available  
+            std::cout << "[PROPERTY ACCESS] Sending GetPropertyData for: '" << StandardPropertyNames::ALL_CTRL_LIST << "'" << std::endl;
             property_client.send_get_property_data(StandardPropertyNames::ALL_CTRL_LIST, "");
             std::cout << "[PROPERTY ACCESS] Requested AllCtrlList from remote device" << std::endl;
+            
+            // Schedule a retry notification to trigger UI update later
+            std::thread([this, muid]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Wait 1 second
+                std::cout << "[PROPERTY ACCESS] Triggering delayed properties callback for MUID 0x" << std::hex << muid << std::dec << std::endl;
+                if (properties_changed_callback_) {
+                    properties_changed_callback_(muid);
+                }
+            }).detach();
+            
             return std::nullopt;
         }
     } catch (const std::exception& e) {

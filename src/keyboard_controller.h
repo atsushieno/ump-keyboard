@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <set>
 #include "midi_ci_manager.h"
 
 class KeyboardController {
@@ -57,7 +58,11 @@ private:
     
     std::function<void(bool)> midiConnectionChangedCallback;
     std::function<void(uint32_t)> midiCIPropertiesChangedCallback;
+    std::function<void()> midiCIDevicesChangedCallback;
     bool initialized = false;
+    
+    // Track outgoing SysEx messages to avoid feedback loops
+    std::set<std::vector<uint8_t>> recentOutgoingSysEx;
     
     void onMidiInput(libremidi::ump&& packet);
     
