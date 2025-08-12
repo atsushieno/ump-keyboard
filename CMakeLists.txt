@@ -26,7 +26,7 @@ FetchContent_MakeAvailable(cmidi2)
 
 FetchContent_Declare(midicci
         NAME            midicci
-        GIT_TAG         d0b71d4
+        GIT_TAG         4b64430
         GIT_REPOSITORY  https://github.com/atsushieno/midicci
 )
 FetchContent_MakeAvailable(midicci)

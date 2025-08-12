@@ -6,6 +6,7 @@
 #include <string>
 #include <cstdint>
 #include <map>
+#include <chrono>
 #include <midicci/midicci.hpp>
 #include <midicci/details/commonproperties/StandardProperties.hpp>
 
@@ -62,6 +63,9 @@ public:
     void setLogCallback(LogCallback callback);
     void setDevicesChangedCallback(DevicesChangedCallback callback);
     
+    // Reset and cleanup
+    void clearDiscoveredDevices();
+    
     // Device information
     uint32_t getMuid() const;
     std::string getDeviceName() const;
@@ -71,10 +75,7 @@ public:
     std::optional<std::vector<midicci::commonproperties::MidiCIControl>> getAllCtrlList(uint32_t muid);
     std::optional<std::vector<midicci::commonproperties::MidiCIProgram>> getProgramList(uint32_t muid);
     void setPropertiesChangedCallback(std::function<void(uint32_t)> callback);
-    
-    // Get MidiCIDevice reference for direct access to StandardPropertiesExtensions
-    midicci::MidiCIDevice* getDeviceReference(uint32_t muid);
-    
+
 private:
     std::unique_ptr<midicci::MidiCIDevice> device_;
     std::unique_ptr<midicci::MidiCIDeviceConfiguration> config_;
@@ -88,15 +89,29 @@ private:
     
     std::vector<MidiCIDeviceInfo> discovered_devices_;
     
+    // Property request tracking to prevent infinite loops
+    struct PendingPropertyRequest {
+        uint32_t muid;
+        std::string property_name;
+        std::chrono::steady_clock::time_point request_time;
+        
+        PendingPropertyRequest(uint32_t m, const std::string& prop) 
+            : muid(m), property_name(prop), request_time(std::chrono::steady_clock::now()) {}
+    };
+    std::vector<PendingPropertyRequest> pending_property_requests_;
+    
     // Note: Remote device access is now handled through ClientConnection objects
     // obtained via device_->get_connection(muid) - no need for separate storage
     
     // Device configuration helpers
     void setupDeviceConfiguration();
     void setupCallbacks();
-    
-    // Property management helpers
-    void updateRemoteDeviceReference(uint32_t muid);
+
+    void setupPropertyCallbacks(uint32_t muid);
+    bool isPropertyRequestPending(uint32_t muid, const std::string& property_name);
+    void addPendingPropertyRequest(uint32_t muid, const std::string& property_name);
+    void removePendingPropertyRequest(uint32_t muid, const std::string& property_name);
+    void cleanupExpiredPropertyRequests();
     
     // Logging helper
     void log(const std::string& message, bool is_outgoing = false);

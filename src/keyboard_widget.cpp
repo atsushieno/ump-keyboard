@@ -461,6 +461,10 @@ void KeyboardWidget::updateMidiCIStatus(bool initialized, uint32_t muid, const s
 }
 
 void KeyboardWidget::updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& discoveredDevices) {
+    // Check if the currently selected device is still available
+    bool selectedDeviceStillExists = false;
+    uint32_t previousSelectedMuid = selectedDeviceMuid;
+    
     // Clear and repopulate the combobox
     midiCIDeviceCombo->clear();
     
@@ -469,6 +473,9 @@ void KeyboardWidget::updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& di
     for (const auto& device : discoveredDevices) {
         if (device.endpoint_ready) {
             readyDevices.push_back(device);
+            if (device.muid == selectedDeviceMuid) {
+                selectedDeviceStillExists = true;
+            }
         }
     }
     
@@ -476,15 +483,51 @@ void KeyboardWidget::updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& di
         midiCIDeviceCombo->addItem("No devices ready");
         midiCIDeviceCombo->setEnabled(false);
         midiCISelectedDeviceInfo->setText("MIDI-CI devices discovered but not ready. Waiting for endpoint information...");
+        
+        // Reset selected device since no devices are available
+        if (selectedDeviceMuid != 0) {
+            std::cout << "[UI] Clearing selected device - no ready devices available" << std::endl;
+            selectedDeviceMuid = 0;
+            refreshPropertiesButton->setEnabled(false);
+            controlListWidget->clear();
+            controlListWidget->addItem("No device selected");
+            programListWidget->clear();
+            programListWidget->addItem("No device selected");
+        }
     } else {
         midiCIDeviceCombo->setEnabled(true);
-        for (const auto& device : readyDevices) {
+        int selectedIndex = -1;
+        
+        for (size_t i = 0; i < readyDevices.size(); ++i) {
+            const auto& device = readyDevices[i];
             QString displayName = QString::fromStdString(device.getDisplayName());
             midiCIDeviceCombo->addItem(displayName, device.muid);
+            
+            // Check if this is the previously selected device
+            if (device.muid == previousSelectedMuid) {
+                selectedIndex = static_cast<int>(i);
+            }
         }
         
-        // Auto-select first device if this is the first endpoint-ready device
-        if (midiCIDeviceCombo->count() == 1) {
+        // Handle device selection logic
+        if (!selectedDeviceStillExists && selectedDeviceMuid != 0) {
+            // Previously selected device is no longer available
+            std::cout << "[UI] Previously selected device (MUID: 0x" << std::hex << selectedDeviceMuid << std::dec 
+                      << ") is no longer available, clearing selection" << std::endl;
+            selectedDeviceMuid = 0;
+            refreshPropertiesButton->setEnabled(false);
+            controlListWidget->clear();
+            controlListWidget->addItem("No device selected");
+            programListWidget->clear();
+            programListWidget->addItem("No device selected");
+        }
+        
+        if (selectedIndex >= 0) {
+            // Previously selected device is still available, reselect it
+            std::cout << "[UI] Reselecting previously selected device" << std::endl;
+            midiCIDeviceCombo->setCurrentIndex(selectedIndex);
+        } else if (midiCIDeviceCombo->count() == 1 && selectedDeviceMuid == 0) {
+            // Auto-select first device if no device was previously selected and only one is available
             std::cout << "[UI] Auto-selecting first endpoint-ready device" << std::endl;
             onMidiCIDeviceSelected(0);
         }

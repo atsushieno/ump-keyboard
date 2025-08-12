@@ -4,6 +4,7 @@
 #include <random>
 #include <chrono>
 #include <thread>
+#include <algorithm>
 
 using namespace midicci::commonproperties;
 
@@ -73,6 +74,9 @@ void MidiCIManager::shutdown() {
     if (!initialized_) return;
     
     try {
+        // Clear all state before shutting down
+        clearDiscoveredDevices();
+        
         device_.reset();
         config_.reset();
         initialized_ = false;
@@ -102,6 +106,9 @@ void MidiCIManager::processMidi1SysEx(const std::vector<uint8_t>& sysex_data) {
     }
 }
 
+// Claude Code was stupid - it somehow did not use this function to process UMP input
+// while this app is totally based on UMP...
+// We may fix this inconsistency, but I'm afraid that Claude Code is not clever enough to handle this...
 void MidiCIManager::processUmpSysEx(uint8_t group, const std::vector<uint8_t>& sysex_data) {
     if (!initialized_ || !device_) return;
     
@@ -196,6 +203,9 @@ void MidiCIManager::setupDeviceConfiguration() {
     config_ = std::make_unique<midicci::MidiCIDeviceConfiguration>();
     
     // Set up basic device information using the correct fields
+    //
+    // Claude Code is kind of stupid here - it takes some example data as midicci default.
+    // We may fix this later, maybe without Claude Code.
     config_->device_info.manufacturer_id = 0x654321;  // Use midicci default for now
     config_->device_info.family_id = 0x4321;
     config_->device_info.model_id = 0x765;
@@ -345,14 +355,21 @@ void MidiCIManager::setupCallbacks() {
             } catch (const std::exception& e) {
                 std::cerr << "[MIDI-CI ERROR] Error processing discovery reply: " << e.what() << std::endl;
             }
-        } else {
-            std::cout << "[UMP-KEYBOARD RECV] Message type " << static_cast<int>(message.get_type()) << " is not DiscoveryReply (" << static_cast<int>(midicci::MessageType::DiscoveryReply) << ")" << std::endl;
         }
     });
     
     // Set up connections changed callback
     device_->set_connections_changed_callback([this]() {
         log("MIDI-CI Connections changed", false); // incoming change notification
+        
+        // Set up property callbacks for all connected devices
+        auto& connections = device_->get_connections();
+        for (const auto& conn_pair : connections) {
+            uint32_t muid = conn_pair.first;
+            std::cout << "[CONNECTIONS CHANGED] Setting up property callbacks for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            setupPropertyCallbacks(muid);
+        }
+        
         if (devices_changed_callback_) {
             devices_changed_callback_();
         }
@@ -386,54 +403,28 @@ std::optional<std::vector<midicci::commonproperties::MidiCIControl>> MidiCIManag
     }
     
     try {
-        // Access the property client facade for this connection
-        auto& property_client = connection->get_property_client_facade();
-        auto* properties = property_client.get_properties();
+        // Clean up expired requests first
+        cleanupExpiredPropertyRequests();
         
-        // Look for AllCtrlList in the client's property values
-        auto values = properties->getValues();
-        auto it = std::find_if(values.begin(), values.end(),
-                               [](const midicci::PropertyValue& pv) { 
-                                   return pv.id == StandardPropertyNames::ALL_CTRL_LIST; 
-                               });
-        
-        if (it != values.end()) {
-            // Parse the property data
-            auto ctrl_list = StandardProperties::parseControlList(it->body);
-            std::cout << "[PROPERTY ACCESS] Retrieved " << ctrl_list.size() << " controls for MUID: 0x" << std::hex << muid << std::dec << std::endl;
-            return ctrl_list;
-        } else {
-            std::cout << "[PROPERTY ACCESS] AllCtrlList not found in client properties for MUID: 0x" << std::hex << muid << std::dec << std::endl;
-            
-            // Check if we have PropertyExchangeCapabilities first
-            std::cout << "[PROPERTY ACCESS] Checking PropertyExchangeCapabilities..." << std::endl;
-            auto pe_caps_it = std::find_if(values.begin(), values.end(),
-                                          [](const midicci::PropertyValue& pv) { 
-                                              return pv.id == "PropertyExchangeCapabilities"; 
-                                          });
-            
-            if (pe_caps_it != values.end()) {
-                std::cout << "[PROPERTY ACCESS] PropertyExchangeCapabilities found, body size: " << pe_caps_it->body.size() << std::endl;
-            } else {
-                std::cout << "[PROPERTY ACCESS] PropertyExchangeCapabilities not found - may be too early" << std::endl;
+        auto ret = StandardPropertiesExtensions::getAllCtrlList(*connection->get_property_client_facade().get_properties());
+        if (!ret) {
+            // Check if we already have a pending request for this property
+            if (isPropertyRequestPending(muid, StandardPropertyNames::ALL_CTRL_LIST)) {
+                std::cout << "[PROPERTY ACCESS] AllCtrlList request already pending for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+                return std::nullopt;
             }
             
-            // Try to request the property if not already available  
-            std::cout << "[PROPERTY ACCESS] Sending GetPropertyData for: '" << StandardPropertyNames::ALL_CTRL_LIST << "'" << std::endl;
+            // Add to pending requests to prevent duplicates
+            addPendingPropertyRequest(muid, StandardPropertyNames::ALL_CTRL_LIST);
+            
+            auto& property_client = connection->get_property_client_facade();
             property_client.send_get_property_data(StandardPropertyNames::ALL_CTRL_LIST, "");
-            std::cout << "[PROPERTY ACCESS] Requested AllCtrlList from remote device" << std::endl;
-            
-            // Schedule a retry notification to trigger UI update later
-            std::thread([this, muid]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Wait 1 second
-                std::cout << "[PROPERTY ACCESS] Triggering delayed properties callback for MUID 0x" << std::hex << muid << std::dec << std::endl;
-                if (properties_changed_callback_) {
-                    properties_changed_callback_(muid);
-                }
-            }).detach();
-            
-            return std::nullopt;
+            std::cout << "[PROPERTY ACCESS] Requested AllCtrlList from remote device (async response expected)" << std::endl;
+        } else {
+            // Remove from pending requests since we got a successful response
+            removePendingPropertyRequest(muid, StandardPropertyNames::ALL_CTRL_LIST);
         }
+        return ret;
     } catch (const std::exception& e) {
         std::cerr << "[MIDI-CI ERROR] Failed to get AllCtrlList for MUID 0x" << std::hex << muid << std::dec << ": " << e.what() << std::endl;
         return std::nullopt;
@@ -454,6 +445,15 @@ std::optional<std::vector<midicci::commonproperties::MidiCIProgram>> MidiCIManag
     }
     
     try {
+        // Clean up expired requests first
+        cleanupExpiredPropertyRequests();
+        
+        // Check if we already have a pending request for this property
+        if (isPropertyRequestPending(muid, StandardPropertyNames::PROGRAM_LIST)) {
+            std::cout << "[PROPERTY ACCESS] ProgramList request already pending for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            return std::nullopt;
+        }
+        
         // Access the property client facade for this connection
         auto& property_client = connection->get_property_client_facade();
         auto* properties = property_client.get_properties();
@@ -469,9 +469,17 @@ std::optional<std::vector<midicci::commonproperties::MidiCIProgram>> MidiCIManag
             // Parse the property data
             auto program_list = StandardProperties::parseProgramList(it->body);
             std::cout << "[PROPERTY ACCESS] Retrieved " << program_list.size() << " programs for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            
+            // Remove from pending requests since we got a successful response
+            removePendingPropertyRequest(muid, StandardPropertyNames::PROGRAM_LIST);
+            
             return program_list;
         } else {
             std::cout << "[PROPERTY ACCESS] ProgramList not found in client properties for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            
+            // Add to pending requests to prevent duplicates
+            addPendingPropertyRequest(muid, StandardPropertyNames::PROGRAM_LIST);
+            
             // Try to request the property if not already available
             property_client.send_get_property_data(StandardPropertyNames::PROGRAM_LIST, "");
             std::cout << "[PROPERTY ACCESS] Requested ProgramList from remote device" << std::endl;
@@ -483,22 +491,112 @@ std::optional<std::vector<midicci::commonproperties::MidiCIProgram>> MidiCIManag
     }
 }
 
-midicci::MidiCIDevice* MidiCIManager::getDeviceReference(uint32_t muid) {
-    // For remote device access, we should use connections, not direct device references
-    if (device_) {
-        auto connection = device_->get_connection(muid);
-        if (connection) {
-            // Note: This returns nullptr since remote devices are accessed via connections
-            // This method is kept for API compatibility but should use connections instead
-            return nullptr;
-        }
+void MidiCIManager::setupPropertyCallbacks(uint32_t muid) {
+    if (!initialized_ || !device_) {
+        std::cerr << "[PROPERTY CALLBACKS] Cannot setup callbacks - not initialized" << std::endl;
+        return;
     }
-    return nullptr;
+    
+    // Get connection to the remote device
+    auto connection = device_->get_connection(muid);
+    if (!connection) {
+        std::cout << "[PROPERTY CALLBACKS] No connection found for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        return;
+    }
+    
+    try {
+        // Get the property client facade
+        auto& property_client = connection->get_property_client_facade();
+        
+        // Get the observable property list  
+        auto* properties = property_client.get_properties();
+        if (!properties) {
+            std::cout << "[PROPERTY CALLBACKS] No observable property list available for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            return;
+        }
+        
+        // Register callback for property value updates
+        properties->addPropertyUpdatedCallback([this, muid](const std::string& propertyId) {
+            std::cout << "[PROPERTY VALUE UPDATED] Property '" << propertyId << "' updated for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            
+            // Clear any pending requests for this specific property
+            this->removePendingPropertyRequest(muid, propertyId);
+            
+            // Notify UI about property changes
+            if (this->properties_changed_callback_) {
+                this->properties_changed_callback_(muid);
+            }
+        });
+        
+        // Register callback for property catalog updates (when metadata changes)
+        properties->addPropertyCatalogUpdatedCallback([this, muid]() {
+            std::cout << "[PROPERTY CATALOG UPDATED] Property catalog updated for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            
+            // Notify UI about property changes
+            if (this->properties_changed_callback_) {
+                this->properties_changed_callback_(muid);
+            }
+        });
+        
+        std::cout << "[PROPERTY CALLBACKS] Successfully set up property callbacks for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "[PROPERTY CALLBACKS ERROR] Failed to setup callbacks for MUID 0x" << std::hex << muid << std::dec << ": " << e.what() << std::endl;
+    }
 }
 
-void MidiCIManager::updateRemoteDeviceReference(uint32_t muid) {
-    // This method is now simplified since connections are managed automatically
-    // by the MidiCIDevice when discovery replies are received
-    std::cout << "[DEVICE UPDATE] Connection management is now handled automatically by MidiCIDevice for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+bool MidiCIManager::isPropertyRequestPending(uint32_t muid, const std::string& property_name) {
+    return std::any_of(pending_property_requests_.begin(), pending_property_requests_.end(),
+                       [muid, &property_name](const PendingPropertyRequest& req) {
+                           return req.muid == muid && req.property_name == property_name;
+                       });
+}
+
+void MidiCIManager::addPendingPropertyRequest(uint32_t muid, const std::string& property_name) {
+    // First check if it already exists to avoid duplicates
+    if (!isPropertyRequestPending(muid, property_name)) {
+        pending_property_requests_.emplace_back(muid, property_name);
+        std::cout << "[PROPERTY REQUEST] Added pending request for MUID: 0x" << std::hex << muid << std::dec 
+                  << ", property: " << property_name << std::endl;
+    }
+}
+
+void MidiCIManager::removePendingPropertyRequest(uint32_t muid, const std::string& property_name) {
+    auto it = std::remove_if(pending_property_requests_.begin(), pending_property_requests_.end(),
+                            [muid, &property_name](const PendingPropertyRequest& req) {
+                                return req.muid == muid && req.property_name == property_name;
+                            });
+    if (it != pending_property_requests_.end()) {
+        pending_property_requests_.erase(it, pending_property_requests_.end());
+        std::cout << "[PROPERTY REQUEST] Removed pending request for MUID: 0x" << std::hex << muid << std::dec 
+                  << ", property: " << property_name << std::endl;
+    }
+}
+
+void MidiCIManager::cleanupExpiredPropertyRequests() {
+    const auto now = std::chrono::steady_clock::now();
+    const auto timeout = std::chrono::seconds(30); // 30 second timeout
+    
+    auto it = std::remove_if(pending_property_requests_.begin(), pending_property_requests_.end(),
+                            [now, timeout](const PendingPropertyRequest& req) {
+                                return (now - req.request_time) > timeout;
+                            });
+    
+    if (it != pending_property_requests_.end()) {
+        size_t removed_count = pending_property_requests_.end() - it;
+        pending_property_requests_.erase(it, pending_property_requests_.end());
+        std::cout << "[PROPERTY REQUEST] Cleaned up " << removed_count << " expired property requests" << std::endl;
+    }
+}
+
+void MidiCIManager::clearDiscoveredDevices() {
+    std::cout << "[MIDI-CI] Clearing all discovered devices and pending property requests" << std::endl;
+    discovered_devices_.clear();
+    pending_property_requests_.clear();
+    
+    // Notify UI about device list change
+    if (devices_changed_callback_) {
+        devices_changed_callback_();
+    }
 }
 

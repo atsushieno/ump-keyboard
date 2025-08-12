@@ -25,6 +25,16 @@ KeyboardController::~KeyboardController() {
 
 bool KeyboardController::resetMidiConnections() {
     try {
+        // Shutdown existing MIDI-CI manager if it exists
+        if (midiCIManager) {
+            std::cout << "[RESET] Shutting down existing MIDI-CI manager" << std::endl;
+            midiCIManager->shutdown();
+            midiCIManager.reset();
+        }
+        
+        // Clear any cached SysEx tracking to avoid stale feedback detection
+        recentOutgoingSysEx.clear();
+        
         // Create observer with UMP/MIDI 2.0 configuration for device detection
         libremidi::observer_configuration obsConf;
         obsConf.track_hardware = true;   // Track hardware MIDI devices
@@ -248,28 +258,16 @@ void KeyboardController::allNotesOff() {
 }
 
 void KeyboardController::onMidiInput(libremidi::ump&& packet) {
-    // Handle incoming UMP packets
-    std::cout << "[UMP INPUT] Raw packet: ";
-    for (int i = 0; i < 4; i++) {
-        std::cout << std::hex << "0x" << packet.data[i] << " ";
-    }
-    std::cout << std::dec << std::endl;
-    
     // Check if this is a System Exclusive message (UMP Type 3 - SysEx7)
     uint8_t message_type = (packet.data[0] >> 28) & 0xF;
     if (message_type == 0x3) { // SysEx7 UMP
-        std::cout << "[SYSEX DETECTED] UMP SysEx7 message type 3" << std::endl;
-        
         uint8_t group = (packet.data[0] >> 24) & 0xF;
         uint8_t status = (packet.data[0] >> 20) & 0xF;
         uint8_t number_of_bytes = (packet.data[0] >> 16) & 0xF;
-        
-        std::cout << "[SYSEX INFO] Group: " << (int)group << ", Status: " << (int)status << ", Bytes: " << (int)number_of_bytes << std::endl;
-        
+
         // Handle multi-packet SysEx reconstruction manually based on UMP SysEx7 status
         switch (status) {
             case 0x0: { // Complete SysEx in one packet
-                std::cout << "[SYSEX] Complete in one packet" << std::endl;
                 sysex_buffer_.clear();
                 sysex_buffer_.push_back(0xF0); // Add SysEx start
                 
@@ -282,17 +280,26 @@ void KeyboardController::onMidiInput(libremidi::ump&& packet) {
                 sysex_buffer_.push_back(0xF7); // Add SysEx end
                 
                 // Check if this is one of our own outgoing messages to avoid feedback loop
+                // But be more intelligent - only block exact matches, not legitimate responses
                 if (recentOutgoingSysEx.find(sysex_buffer_) != recentOutgoingSysEx.end()) {
-                    std::cout << "[SYSEX INPUT] Ignoring our own outgoing SysEx message (complete packet)" << std::endl;
+                    throw std::runtime_error("This should not happen at all");
+                    std::cout << "[SYSEX INPUT] Ignoring our own outgoing SysEx message (exact match)" << std::endl;
                     recentOutgoingSysEx.erase(sysex_buffer_); // Remove from tracking set
                 } else {
-                    processSysExForMidiCI(sysex_buffer_);
+                    // Check if this might be a legitimate MIDI-CI message (starts with F0 7E ... 0D)
+                    if (sysex_buffer_.size() >= 4 && 
+                        sysex_buffer_[0] == 0xF0 && sysex_buffer_[1] == 0x7E && sysex_buffer_[3] == 0x0D) {
+                        std::cout << "[SYSEX INPUT] Processing legitimate MIDI-CI message" << std::endl;
+                        processSysExForMidiCI(sysex_buffer_);
+                    } else {
+                        std::cout << "[SYSEX INPUT] Processing SysEx message (not MIDI-CI or not in recent outgoing)" << std::endl;
+                        processSysExForMidiCI(sysex_buffer_);
+                    }
                 }
                 sysex_in_progress_ = false;
                 break;
             }
             case 0x1: { // SysEx start
-                std::cout << "[SYSEX] Start packet" << std::endl;
                 sysex_buffer_.clear();
                 sysex_buffer_.push_back(0xF0); // Add SysEx start
                 sysex_in_progress_ = true;
@@ -306,7 +313,6 @@ void KeyboardController::onMidiInput(libremidi::ump&& packet) {
                 break;
             }
             case 0x2: { // SysEx continue
-                std::cout << "[SYSEX] Continue packet" << std::endl;
                 if (!sysex_in_progress_) {
                     std::cerr << "[SYSEX ERROR] Continue packet without start" << std::endl;
                     break;
@@ -321,7 +327,6 @@ void KeyboardController::onMidiInput(libremidi::ump&& packet) {
                 break;
             }
             case 0x3: { // SysEx end
-                std::cout << "[SYSEX] End packet" << std::endl;
                 if (!sysex_in_progress_) {
                     std::cerr << "[SYSEX ERROR] End packet without start" << std::endl;
                     break;
@@ -336,11 +341,21 @@ void KeyboardController::onMidiInput(libremidi::ump&& packet) {
                 sysex_buffer_.push_back(0xF7); // Add SysEx end
                 
                 // Check if this is one of our own outgoing messages to avoid feedback loop
+                // But be more intelligent - only block exact matches, not legitimate responses
                 if (recentOutgoingSysEx.find(sysex_buffer_) != recentOutgoingSysEx.end()) {
-                    std::cout << "[SYSEX INPUT] Ignoring our own outgoing SysEx message (multi-packet)" << std::endl;
+                    throw std::runtime_error("This should not happen at all");
+                    std::cout << "[SYSEX INPUT] Ignoring our own outgoing SysEx message (exact match, multi-packet)" << std::endl;
                     recentOutgoingSysEx.erase(sysex_buffer_); // Remove from tracking set
                 } else {
-                    processSysExForMidiCI(sysex_buffer_);
+                    // Check if this might be a legitimate MIDI-CI message (starts with F0 7E ... 0D)
+                    if (sysex_buffer_.size() >= 4 && 
+                        sysex_buffer_[0] == 0xF0 && sysex_buffer_[1] == 0x7E && sysex_buffer_[3] == 0x0D) {
+                        std::cout << "[SYSEX INPUT] Processing legitimate MIDI-CI message (multi-packet)" << std::endl;
+                        processSysExForMidiCI(sysex_buffer_);
+                    } else {
+                        std::cout << "[SYSEX INPUT] Processing SysEx message (not MIDI-CI or not in recent outgoing, multi-packet)" << std::endl;
+                        processSysExForMidiCI(sysex_buffer_);
+                    }
                 }
                 sysex_in_progress_ = false;
                 break;
@@ -349,12 +364,6 @@ void KeyboardController::onMidiInput(libremidi::ump&& packet) {
                 std::cerr << "[SYSEX ERROR] Unknown SysEx7 status: " << (int)status << std::endl;
                 break;
         }
-        
-        std::cout << "[SYSEX DATA] Current buffer (" << sysex_buffer_.size() << " bytes): ";
-        for (auto byte : sysex_buffer_) {
-            std::cout << std::hex << "0x" << (int)byte << " ";
-        }
-        std::cout << std::dec << std::endl;
     }
 }
 
@@ -460,6 +469,13 @@ void KeyboardController::setMidiConnectionChangedCallback(std::function<void(boo
 
 void KeyboardController::initializeMidiCI() {
     try {
+        // Ensure any existing manager is properly shut down first
+        if (midiCIManager) {
+            std::cout << "[MIDI-CI] Reinitializing MIDI-CI manager" << std::endl;
+            midiCIManager->shutdown();
+            midiCIManager.reset();
+        }
+        
         midiCIManager = std::make_unique<MidiCIManager>();
         
         // Set up logging callback
@@ -561,16 +577,7 @@ bool KeyboardController::sendSysExViaMidi(uint8_t group, const std::vector<uint8
             auto it = recentOutgoingSysEx.begin();
             recentOutgoingSysEx.erase(it);
         }
-        
-        std::cout << "[SYSEX SEND] Sending " << data.size() << " bytes via UMP SYSEX7 using cmidi2" << std::endl;
-        
-        // Log the complete data being sent
-        std::cout << "[SYSEX SEND] Complete data (" << data.size() << " bytes): ";
-        for (size_t i = 0; i < data.size(); i++) {
-            std::cout << std::hex << "0x" << (int)data[i] << " ";
-        }
-        std::cout << std::dec << std::endl;
-        
+
         // Use cmidi2 to convert SysEx to UMP SYSEX7 packets
         void* result = cmidi2_ump_sysex7_process(
             group,
@@ -584,9 +591,7 @@ bool KeyboardController::sendSysExViaMidi(uint8_t group, const std::vector<uint8
                 
                 // Create UMP packet and send it
                 libremidi::ump packet(word0, word1, 0, 0);
-                
-                std::cout << "[SYSEX SEND] UMP packet: 0x" << std::hex << word0 << " 0x" << word1 << std::dec << std::endl;
-                
+
                 try {
                     controller->midiOut->send_ump(packet);
                 } catch (const std::exception& e) {
