@@ -285,6 +285,26 @@ void KeyboardWidget::setDeviceRefreshCallback(std::function<void()> callback) {
     deviceRefreshCallback = callback;
 }
 
+void KeyboardWidget::setControlChangeCallback(std::function<void(int,int,int)> callback) {
+    controlChangeCallback = callback;
+}
+
+void KeyboardWidget::setRPNCallback(std::function<void(int,int,int,int)> callback) {
+    rpnCallback = callback;
+}
+
+void KeyboardWidget::setNRPNCallback(std::function<void(int,int,int,int)> callback) {
+    nrpnCallback = callback;
+}
+
+void KeyboardWidget::setPerNoteControlCallback(std::function<void(int,int,int,int)> callback) {
+    perNoteControlCallback = callback;
+}
+
+void KeyboardWidget::setPerNoteAftertouchCallback(std::function<void(int,int,int)> callback) {
+    perNoteAftertouchCallback = callback;
+}
+
 void KeyboardWidget::updateMidiDevices(
     const std::vector<std::pair<std::string, std::string>>& inputDevices,
     const std::vector<std::pair<std::string, std::string>>& outputDevices) {
@@ -727,6 +747,21 @@ void KeyboardWidget::updatePropertiesOnMainThread(uint32_t muid) {
                         connect(slider, &QSlider::valueChanged, valueLabel, 
                                [valueLabel](int value) { valueLabel->setText(QString::number(value)); });
                         
+                        // Connect slider to send per-note control change
+                        if (ctrlType == "pnrc" && perNoteControlCallback) {
+                            int channelNum = ctrl.channel.value_or(0);
+                            connect(slider, &QSlider::valueChanged, [this, noteSpinBox, ctrlNum, channelNum](int value) {
+                                int note = noteSpinBox->value();
+                                perNoteControlCallback(channelNum, note, ctrlNum, value);
+                            });
+                        } else if (ctrlType == "pnac" && perNoteAftertouchCallback) {
+                            int channelNum = ctrl.channel.value_or(0);
+                            connect(slider, &QSlider::valueChanged, [this, noteSpinBox, channelNum](int value) {
+                                int note = noteSpinBox->value();
+                                perNoteAftertouchCallback(channelNum, note, value);
+                            });
+                        }
+                        
                         sliderLayout->addWidget(slider);
                         sliderLayout->addWidget(valueLabel);
                         
@@ -765,6 +800,29 @@ void KeyboardWidget::updatePropertiesOnMainThread(uint32_t muid) {
                         // Connect slider to value label
                         connect(slider, &QSlider::valueChanged, valueLabel, 
                                [valueLabel](int value) { valueLabel->setText(QString::number(value)); });
+                        
+                        // Connect slider to send appropriate MIDI control message
+                        if (ctrlType == "cc" && controlChangeCallback) {
+                            int channelNum = ctrl.channel.value_or(0);
+                            uint8_t ccNum = ctrl.ctrlIndex.empty() ? 0 : ctrl.ctrlIndex[0];
+                            connect(slider, &QSlider::valueChanged, [this, channelNum, ccNum](int value) {
+                                controlChangeCallback(channelNum, ccNum, value);
+                            });
+                        } else if (ctrlType == "rpn" && rpnCallback) {
+                            int channelNum = ctrl.channel.value_or(0);
+                            uint8_t msb = ctrl.ctrlIndex.size() > 0 ? ctrl.ctrlIndex[0] : 0;
+                            uint8_t lsb = ctrl.ctrlIndex.size() > 1 ? ctrl.ctrlIndex[1] : 0;
+                            connect(slider, &QSlider::valueChanged, [this, channelNum, msb, lsb](int value) {
+                                rpnCallback(channelNum, msb, lsb, value);
+                            });
+                        } else if (ctrlType == "nrpn" && nrpnCallback) {
+                            int channelNum = ctrl.channel.value_or(0);
+                            uint8_t msb = ctrl.ctrlIndex.size() > 0 ? ctrl.ctrlIndex[0] : 0;
+                            uint8_t lsb = ctrl.ctrlIndex.size() > 1 ? ctrl.ctrlIndex[1] : 0;
+                            connect(slider, &QSlider::valueChanged, [this, channelNum, msb, lsb](int value) {
+                                nrpnCallback(channelNum, msb, lsb, value);
+                            });
+                        }
                         
                         sliderLayout->addWidget(slider);
                         sliderLayout->addWidget(valueLabel);

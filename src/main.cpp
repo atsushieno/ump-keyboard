@@ -93,6 +93,27 @@ int main(int argc, char** argv) {
         }
     });
     
+    // Set up control change callbacks
+    keyboard.setControlChangeCallback([&controller](int channel, int cc, int value) {
+        controller.sendControlChange(channel, cc, value);
+    });
+    
+    keyboard.setRPNCallback([&controller](int channel, int msb, int lsb, int value) {
+        controller.sendRPN(channel, msb, lsb, value);
+    });
+    
+    keyboard.setNRPNCallback([&controller](int channel, int msb, int lsb, int value) {
+        controller.sendNRPN(channel, msb, lsb, value);
+    });
+    
+    keyboard.setPerNoteControlCallback([&controller](int channel, int note, int cc, int value) {
+        controller.sendPerNoteControlChange(channel, note, cc, value);
+    });
+    
+    keyboard.setPerNoteAftertouchCallback([&controller](int channel, int note, int value) {
+        controller.sendPerNoteAftertouch(channel, note, value);
+    });
+    
     // Connect device selection signals
     QObject::connect(&keyboard, &KeyboardWidget::midiInputDeviceChanged,
                     [&controller](const QString& deviceId) {

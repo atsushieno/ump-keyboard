@@ -617,6 +617,95 @@ bool KeyboardController::sendSysExViaMidi(uint8_t group, const std::vector<uint8
     }
 }
 
+void KeyboardController::sendControlChange(int channel, int controller, int value) {
+    if (!midiOut || !initialized) return;
+    
+    try {
+        // Create MIDI 2.0 Control Change UMP packet
+        // Format: [Message Type (4) | Channel (4) | Status (8) | Index (8) | Reserved (8)] [Controller Data (32)]
+        uint32_t word0 = (0x4 << 28) | (channel << 24) | (0xB0 << 16) | (controller << 8) | 0x00;
+        uint32_t word1 = (value << 25); // MIDI 2.0 uses 32-bit values, shift to MSB
+        libremidi::ump ccPacket(word0, word1, 0, 0);
+        midiOut->send_ump(ccPacket);
+        
+        std::cout << "[MIDI OUT] CC Ch:" << channel << " CC:" << controller << " Val:" << value << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error sending control change: " << e.what() << std::endl;
+    }
+}
+
+void KeyboardController::sendRPN(int channel, int msb, int lsb, int value) {
+    if (!midiOut || !initialized) return;
+    
+    try {
+        // Send RPN MSB (CC 101)
+        sendControlChange(channel, 101, msb);
+        // Send RPN LSB (CC 100)  
+        sendControlChange(channel, 100, lsb);
+        // Send Data Entry MSB (CC 6)
+        sendControlChange(channel, 6, (value >> 7) & 0x7F);
+        // Send Data Entry LSB (CC 38)
+        sendControlChange(channel, 38, value & 0x7F);
+        
+        std::cout << "[MIDI OUT] RPN Ch:" << channel << " MSB:" << msb << " LSB:" << lsb << " Val:" << value << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error sending RPN: " << e.what() << std::endl;
+    }
+}
+
+void KeyboardController::sendNRPN(int channel, int msb, int lsb, int value) {
+    if (!midiOut || !initialized) return;
+    
+    try {
+        // Send NRPN MSB (CC 99)
+        sendControlChange(channel, 99, msb);
+        // Send NRPN LSB (CC 98)
+        sendControlChange(channel, 98, lsb);
+        // Send Data Entry MSB (CC 6)
+        sendControlChange(channel, 6, (value >> 7) & 0x7F);
+        // Send Data Entry LSB (CC 38)
+        sendControlChange(channel, 38, value & 0x7F);
+        
+        std::cout << "[MIDI OUT] NRPN Ch:" << channel << " MSB:" << msb << " LSB:" << lsb << " Val:" << value << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error sending NRPN: " << e.what() << std::endl;
+    }
+}
+
+void KeyboardController::sendPerNoteControlChange(int channel, int note, int controller, int value) {
+    if (!midiOut || !initialized) return;
+    
+    try {
+        // Create MIDI 2.0 Per-Note Control Change UMP packet
+        // Format: [Message Type (4) | Channel (4) | Status (8) | Note (8) | Index (8)] [Controller Data (32)]
+        uint32_t word0 = (0x4 << 28) | (channel << 24) | (0x00 << 16) | (note << 8) | controller;
+        uint32_t word1 = (value << 25); // MIDI 2.0 uses 32-bit values
+        libremidi::ump pnccPacket(word0, word1, 0, 0);
+        midiOut->send_ump(pnccPacket);
+        
+        std::cout << "[MIDI OUT] Per-Note CC Ch:" << channel << " Note:" << note << " CC:" << controller << " Val:" << value << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error sending per-note control change: " << e.what() << std::endl;
+    }
+}
+
+void KeyboardController::sendPerNoteAftertouch(int channel, int note, int value) {
+    if (!midiOut || !initialized) return;
+    
+    try {
+        // Create MIDI 2.0 Per-Note Aftertouch UMP packet
+        // Format: [Message Type (4) | Channel (4) | Status (8) | Note (8) | Reserved (8)] [Pressure Data (32)]
+        uint32_t word0 = (0x4 << 28) | (channel << 24) | (0x01 << 16) | (note << 8) | 0x00;
+        uint32_t word1 = (value << 25); // MIDI 2.0 uses 32-bit values
+        libremidi::ump pnacPacket(word0, word1, 0, 0);
+        midiOut->send_ump(pnacPacket);
+        
+        std::cout << "[MIDI OUT] Per-Note AC Ch:" << channel << " Note:" << note << " Val:" << value << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error sending per-note aftertouch: " << e.what() << std::endl;
+    }
+}
+
 void KeyboardController::updateUIConnectionState() {
     bool currentConnectionState = hasValidMidiPair();
     

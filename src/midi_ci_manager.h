@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <chrono>
+#include <mutex>
 #include <midicci/midicci.hpp>
 #include <midicci/details/commonproperties/StandardProperties.hpp>
 
@@ -115,4 +116,7 @@ private:
     
     // Logging helper
     void log(const std::string& message, bool is_outgoing = false);
+    
+    // Thread synchronization for cross-thread access
+    mutable std::recursive_mutex midi_ci_mutex_;
 };

@@ -148,10 +148,12 @@ std::vector<std::string> MidiCIManager::getDiscoveredDevices() const {
 }
 
 std::vector<MidiCIDeviceInfo> MidiCIManager::getDiscoveredDeviceDetails() const {
+    std::lock_guard<std::recursive_mutex> lock(midi_ci_mutex_);
     return discovered_devices_;
 }
 
 MidiCIDeviceInfo* MidiCIManager::getDeviceByMuid(uint32_t muid) {
+    std::lock_guard<std::recursive_mutex> lock(midi_ci_mutex_);
     for (auto& device_info : discovered_devices_) {
         if (device_info.muid == muid) {
             return &device_info;
@@ -390,6 +392,8 @@ void MidiCIManager::log(const std::string& message, bool is_outgoing) {
 
 // Property management methods using PropertyClientFacade for remote device access
 std::optional<std::vector<midicci::commonproperties::MidiCIControl>> MidiCIManager::getAllCtrlList(uint32_t muid) {
+    std::lock_guard<std::recursive_mutex> lock(midi_ci_mutex_);
+    
     if (!initialized_ || !device_) {
         std::cerr << "[MIDI-CI ERROR] Cannot get properties - not initialized" << std::endl;
         return std::nullopt;
@@ -406,23 +410,51 @@ std::optional<std::vector<midicci::commonproperties::MidiCIControl>> MidiCIManag
         // Clean up expired requests first
         cleanupExpiredPropertyRequests();
         
-        auto ret = StandardPropertiesExtensions::getAllCtrlList(*connection->get_property_client_facade().get_properties());
-        if (!ret) {
+        auto* properties = connection->get_property_client_facade().get_properties();
+        std::cout << "[PROPERTY ACCESS DEBUG] Checking if AllCtrlList exists in local cache" << std::endl;
+        auto ret = StandardPropertiesExtensions::getAllCtrlList(*properties);
+        std::cout << "[PROPERTY ACCESS DEBUG] StandardPropertiesExtensions::getAllCtrlList returned: " << (ret.has_value() ? "valid data" : "nullopt") << std::endl;
+        if (ret.has_value()) {
+            std::cout << "[PROPERTY ACCESS DEBUG] AllCtrlList data size: " << ret->size() << " controls" << std::endl;
+        }
+        
+        // If we have no data OR we have valid but empty data, we need to request it
+        if (!ret || (ret.has_value() && ret->empty())) {
             // Check if we already have a pending request for this property
             if (isPropertyRequestPending(muid, StandardPropertyNames::ALL_CTRL_LIST)) {
                 std::cout << "[PROPERTY ACCESS] AllCtrlList request already pending for MUID: 0x" << std::hex << muid << std::dec << std::endl;
                 return std::nullopt;
             }
             
+            std::cout << "[PROPERTY ACCESS DEBUG] No pending request found, proceeding to send AllCtrlList request" << std::endl;
+            
             // Add to pending requests to prevent duplicates
             addPendingPropertyRequest(muid, StandardPropertyNames::ALL_CTRL_LIST);
             
             auto& property_client = connection->get_property_client_facade();
+            
+            std::cout << "[PROPERTY ACCESS DEBUG] About to request AllCtrlList for MUID: 0x" << std::hex << muid << std::dec << std::endl;
+            std::cout << "[PROPERTY ACCESS DEBUG] Property name: '" << StandardPropertyNames::ALL_CTRL_LIST << "'" << std::endl;
+            std::string prop_name = StandardPropertyNames::ALL_CTRL_LIST;
+            std::cout << "[PROPERTY ACCESS DEBUG] Property name length: " << prop_name.length() << std::endl;
+            std::cout << "[PROPERTY ACCESS DEBUG] Property name bytes: ";
+            for (char c : prop_name) {
+                std::cout << std::hex << (int)(unsigned char)c << " ";
+            }
+            std::cout << std::dec << std::endl;
+            
+            // Additional safety check - ensure the property name is valid
+            if (prop_name.empty()) {
+                std::cerr << "[PROPERTY ACCESS ERROR] ALL_CTRL_LIST property name is empty!" << std::endl;
+                return std::nullopt;
+            }
+            
             property_client.send_get_property_data(StandardPropertyNames::ALL_CTRL_LIST, "");
             std::cout << "[PROPERTY ACCESS] Requested AllCtrlList from remote device (async response expected)" << std::endl;
         } else {
-            // Remove from pending requests since we got a successful response
+            // We have valid non-empty data - remove from pending requests 
             removePendingPropertyRequest(muid, StandardPropertyNames::ALL_CTRL_LIST);
+            std::cout << "[PROPERTY ACCESS] Found cached AllCtrlList with " << ret->size() << " controls" << std::endl;
         }
         return ret;
     } catch (const std::exception& e) {
@@ -432,6 +464,8 @@ std::optional<std::vector<midicci::commonproperties::MidiCIControl>> MidiCIManag
 }
 
 std::optional<std::vector<midicci::commonproperties::MidiCIProgram>> MidiCIManager::getProgramList(uint32_t muid) {
+    std::lock_guard<std::recursive_mutex> lock(midi_ci_mutex_);
+    
     if (!initialized_ || !device_) {
         std::cerr << "[MIDI-CI ERROR] Cannot get properties - not initialized" << std::endl;
         return std::nullopt;

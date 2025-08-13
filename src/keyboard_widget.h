@@ -27,6 +27,13 @@ public:
     void setKeyReleasedCallback(std::function<void(int)> callback);
     void setDeviceRefreshCallback(std::function<void()> callback);
     
+    // Control change callbacks
+    void setControlChangeCallback(std::function<void(int,int,int)> callback); // channel, controller, value
+    void setRPNCallback(std::function<void(int,int,int,int)> callback); // channel, msb, lsb, value
+    void setNRPNCallback(std::function<void(int,int,int,int)> callback); // channel, msb, lsb, value
+    void setPerNoteControlCallback(std::function<void(int,int,int,int)> callback); // channel, note, controller, value
+    void setPerNoteAftertouchCallback(std::function<void(int,int,int)> callback); // channel, note, value
+    
     void updateMidiDevices(const std::vector<std::pair<std::string, std::string>>& inputDevices,
                           const std::vector<std::pair<std::string, std::string>>& outputDevices);
     
@@ -71,6 +78,13 @@ private:
     std::function<void(int)> keyReleasedCallback;
     std::function<void()> deviceRefreshCallback;
     std::function<void()> midiCIDiscoveryCallback;
+    
+    // Control change callbacks
+    std::function<void(int,int,int)> controlChangeCallback;
+    std::function<void(int,int,int,int)> rpnCallback;
+    std::function<void(int,int,int,int)> nrpnCallback;
+    std::function<void(int,int,int,int)> perNoteControlCallback;
+    std::function<void(int,int,int)> perNoteAftertouchCallback;
     std::function<MidiCIDeviceInfo*(uint32_t)> midiCIDeviceProvider;
     std::function<std::optional<std::vector<midicci::commonproperties::MidiCIControl>>(uint32_t)> ctrlListProvider;
     std::function<std::optional<std::vector<midicci::commonproperties::MidiCIProgram>>(uint32_t)> programListProvider;
