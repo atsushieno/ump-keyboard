@@ -445,11 +445,36 @@ void KeyboardWidget::setupPropertiesPanel() {
     controlLabel->setStyleSheet("font-weight: bold;");
     controlLayout->addWidget(controlLabel);
     
-    controlListWidget = new QListWidget();
+    controlListWidget = new Foo::Bar::Baz::VirtualizedControlList();
     controlListWidget->setMinimumHeight(150);
-    controlListWidget->addItem("No device selected");
     controlListWidget->setEnabled(false);
     controlLayout->addWidget(controlListWidget);
+    
+    // Connect control value changes to MIDI sending
+    controlListWidget->setValueChangeCallback([this](int controlIndex, const midicci::commonproperties::MidiCIControl& control, uint32_t value) {
+        QString ctrlType = QString::fromStdString(control.ctrlType);
+        int channel = control.channel.value_or(0);
+        
+        if (ctrlType == "cc" && controlChangeCallback) {
+            uint8_t ccNum = control.ctrlIndex.empty() ? 0 : control.ctrlIndex[0];
+            controlChangeCallback(channel, ccNum, value);
+        } else if (ctrlType == "rpn" && rpnCallback && control.ctrlIndex.size() >= 2) {
+            rpnCallback(channel, control.ctrlIndex[0], control.ctrlIndex[1], value);
+        } else if (ctrlType == "nrpn" && nrpnCallback && control.ctrlIndex.size() >= 2) {
+            nrpnCallback(channel, control.ctrlIndex[0], control.ctrlIndex[1], value);
+        } else if ((ctrlType == "pnrc" || ctrlType == "pnac") && perNoteControlCallback) {
+            // For per-note controls, we'll use middle C (60) as default note
+            // In a real implementation, you might want a separate note selector
+            int note = 60;
+            uint8_t ctrlNum = control.ctrlIndex.empty() ? 0 : control.ctrlIndex[0];
+            if (ctrlType == "pnrc") {
+                perNoteControlCallback(channel, note, ctrlNum, value);
+            } else if (ctrlType == "pnac" && perNoteAftertouchCallback) {
+                perNoteAftertouchCallback(channel, note, value);
+            }
+        }
+    });
+    
     listsLayout->addLayout(controlLayout);
     
     // Program List section
@@ -513,8 +538,8 @@ void KeyboardWidget::updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& di
             std::cout << "[UI] Clearing selected device - no ready devices available" << std::endl;
             selectedDeviceMuid = 0;
             refreshPropertiesButton->setEnabled(false);
-            controlListWidget->clear();
-            controlListWidget->addItem("No device selected");
+            controlListWidget->setControls({});
+            controlListWidget->setEnabled(false);
             programListWidget->clear();
             programListWidget->addItem("No device selected");
         }
@@ -540,8 +565,8 @@ void KeyboardWidget::updateMidiCIDevices(const std::vector<MidiCIDeviceInfo>& di
                       << ") is no longer available, clearing selection" << std::endl;
             selectedDeviceMuid = 0;
             refreshPropertiesButton->setEnabled(false);
-            controlListWidget->clear();
-            controlListWidget->addItem("No device selected");
+            controlListWidget->setControls({});
+            controlListWidget->setEnabled(false);
             programListWidget->clear();
             programListWidget->addItem("No device selected");
         }
@@ -634,8 +659,8 @@ void KeyboardWidget::refreshProperties() {
     std::cout << "[UI] Force refreshing properties for MUID: 0x" << std::hex << selectedDeviceMuid << std::dec << std::endl;
     
     // Clear current lists and show loading
-    controlListWidget->clear();
-    controlListWidget->addItem("Loading controls...");
+    controlListWidget->setControls({});
+    controlListWidget->setEnabled(false);
     programListWidget->clear();
     programListWidget->addItem("Loading programs...");
     
@@ -662,181 +687,17 @@ void KeyboardWidget::updateProperties(uint32_t muid) {
 }
 
 void KeyboardWidget::updatePropertiesOnMainThread(uint32_t muid) {
-    // Update control list
+    // Update control list using virtualized widget
     if (ctrlListProvider) {
         auto controls_opt = ctrlListProvider(muid);
-        controlListWidget->clear();
         
         if (!controls_opt.has_value()) {
-            controlListWidget->addItem("Loading controls...");
+            controlListWidget->setControls({});
             controlListWidget->setEnabled(false);
         } else {
             auto controls = controls_opt.value();
-            if (controls.empty()) {
-                controlListWidget->addItem("No controls available");
-                controlListWidget->setEnabled(false);
-            } else {
-                controlListWidget->setEnabled(true);
-                for (const auto& ctrl : controls) {
-                    // Create custom widget for each control
-                    QWidget* controlWidget = new QWidget();
-                    QVBoxLayout* layout = new QVBoxLayout(controlWidget);
-                    layout->setContentsMargins(5, 5, 5, 5);
-                    layout->setSpacing(3);
-                    
-                    QString ctrlType = QString::fromStdString(ctrl.ctrlType);
-                    QString title = QString::fromStdString(ctrl.title);
-                    QString channel = ctrl.channel.has_value() ? QString::number(*ctrl.channel) : "All";
-                    
-                    // Format display text based on controller type
-                    QString displayText;
-                    if (ctrlType == "cc") {
-                        // CC: "Num. (MSB-hex,LSB-hex): name [slider]"
-                        uint8_t ccNum = ctrl.ctrlIndex.empty() ? 0 : ctrl.ctrlIndex[0];
-                        displayText = QString("%1 (0x%2,0x00): %3")
-                                     .arg(ccNum)
-                                     .arg(ccNum, 2, 16, QChar('0')).toUpper()
-                                     .arg(title);
-                    } else if (ctrlType == "rpn" || ctrlType == "nrpn") {
-                        // RPN/NRPN: "Num. (MSB-hex,LSB-hex): name [slider]"
-                        uint8_t msb = ctrl.ctrlIndex.size() > 0 ? ctrl.ctrlIndex[0] : 0;
-                        uint8_t lsb = ctrl.ctrlIndex.size() > 1 ? ctrl.ctrlIndex[1] : 0;
-                        uint16_t num = (msb << 7) | lsb;
-                        displayText = QString("%1 (0x%2,0x%3): %4")
-                                     .arg(num)
-                                     .arg(msb, 2, 16, QChar('0')).toUpper()
-                                     .arg(lsb, 2, 16, QChar('0')).toUpper()
-                                     .arg(title);
-                    } else if (ctrlType == "pnrc" || ctrlType == "pnac") {
-                        // Per-Note Controllers: "Key [note number dialer] Num.: name [slider]"
-                        uint8_t ctrlNum = ctrl.ctrlIndex.empty() ? 0 : ctrl.ctrlIndex[0];
-                        
-                        // Create horizontal layout for key dialer and control
-                        QHBoxLayout* pnLayout = new QHBoxLayout();
-                        pnLayout->setContentsMargins(0, 0, 0, 0);
-                        
-                        QLabel* keyLabel = new QLabel("Key");
-                        QSpinBox* noteSpinBox = new QSpinBox();
-                        noteSpinBox->setRange(0, 127);
-                        noteSpinBox->setValue(60); // Middle C
-                        noteSpinBox->setMaximumWidth(60);
-                        
-                        QLabel* numLabel = new QLabel(QString(" Num.%1: %2").arg(ctrlNum).arg(title));
-                        
-                        pnLayout->addWidget(keyLabel);
-                        pnLayout->addWidget(noteSpinBox);
-                        pnLayout->addWidget(numLabel);
-                        pnLayout->addStretch();
-                        
-                        layout->addLayout(pnLayout);
-                        
-                        // Create slider for per-note control
-                        QHBoxLayout* sliderLayout = new QHBoxLayout();
-                        sliderLayout->setContentsMargins(0, 0, 0, 0);
-                        
-                        QSlider* slider = new QSlider(Qt::Horizontal);
-                        uint32_t minVal = ctrl.minMax.size() > 0 ? ctrl.minMax[0] : 0;
-                        uint32_t maxVal = ctrl.minMax.size() > 1 ? ctrl.minMax[1] : 127;
-                        slider->setRange(minVal, maxVal);
-                        slider->setValue(ctrl.defaultValue);
-                        
-                        QLabel* valueLabel = new QLabel(QString::number(ctrl.defaultValue));
-                        valueLabel->setMinimumWidth(40);
-                        
-                        // Connect slider to value label
-                        connect(slider, &QSlider::valueChanged, valueLabel, 
-                               [valueLabel](int value) { valueLabel->setText(QString::number(value)); });
-                        
-                        // Connect slider to send per-note control change
-                        if (ctrlType == "pnrc" && perNoteControlCallback) {
-                            int channelNum = ctrl.channel.value_or(0);
-                            connect(slider, &QSlider::valueChanged, [this, noteSpinBox, ctrlNum, channelNum](int value) {
-                                int note = noteSpinBox->value();
-                                perNoteControlCallback(channelNum, note, ctrlNum, value);
-                            });
-                        } else if (ctrlType == "pnac" && perNoteAftertouchCallback) {
-                            int channelNum = ctrl.channel.value_or(0);
-                            connect(slider, &QSlider::valueChanged, [this, noteSpinBox, channelNum](int value) {
-                                int note = noteSpinBox->value();
-                                perNoteAftertouchCallback(channelNum, note, value);
-                            });
-                        }
-                        
-                        sliderLayout->addWidget(slider);
-                        sliderLayout->addWidget(valueLabel);
-                        
-                        layout->addLayout(sliderLayout);
-                        
-                        // Add to list widget
-                        QListWidgetItem* item = new QListWidgetItem();
-                        item->setSizeHint(controlWidget->sizeHint());
-                        controlListWidget->addItem(item);
-                        controlListWidget->setItemWidget(item, controlWidget);
-                        continue;
-                    } else {
-                        // Other types: show basic info
-                        displayText = QString("[%1] %2 (ch: %3)")
-                                     .arg(ctrlType, title, channel);
-                    }
-                    
-                    // For non-per-note controllers, create label and slider
-                    if (ctrlType != "pnrc" && ctrlType != "pnac") {
-                        QLabel* label = new QLabel(displayText);
-                        layout->addWidget(label);
-                        
-                        // Create slider
-                        QHBoxLayout* sliderLayout = new QHBoxLayout();
-                        sliderLayout->setContentsMargins(0, 0, 0, 0);
-                        
-                        QSlider* slider = new QSlider(Qt::Horizontal);
-                        uint32_t minVal = ctrl.minMax.size() > 0 ? ctrl.minMax[0] : 0;
-                        uint32_t maxVal = ctrl.minMax.size() > 1 ? ctrl.minMax[1] : 127;
-                        slider->setRange(minVal, maxVal);
-                        slider->setValue(ctrl.defaultValue);
-                        
-                        QLabel* valueLabel = new QLabel(QString::number(ctrl.defaultValue));
-                        valueLabel->setMinimumWidth(40);
-                        
-                        // Connect slider to value label
-                        connect(slider, &QSlider::valueChanged, valueLabel, 
-                               [valueLabel](int value) { valueLabel->setText(QString::number(value)); });
-                        
-                        // Connect slider to send appropriate MIDI control message
-                        if (ctrlType == "cc" && controlChangeCallback) {
-                            int channelNum = ctrl.channel.value_or(0);
-                            uint8_t ccNum = ctrl.ctrlIndex.empty() ? 0 : ctrl.ctrlIndex[0];
-                            connect(slider, &QSlider::valueChanged, [this, channelNum, ccNum](int value) {
-                                controlChangeCallback(channelNum, ccNum, value);
-                            });
-                        } else if (ctrlType == "rpn" && rpnCallback) {
-                            int channelNum = ctrl.channel.value_or(0);
-                            uint8_t msb = ctrl.ctrlIndex.size() > 0 ? ctrl.ctrlIndex[0] : 0;
-                            uint8_t lsb = ctrl.ctrlIndex.size() > 1 ? ctrl.ctrlIndex[1] : 0;
-                            connect(slider, &QSlider::valueChanged, [this, channelNum, msb, lsb](int value) {
-                                rpnCallback(channelNum, msb, lsb, value);
-                            });
-                        } else if (ctrlType == "nrpn" && nrpnCallback) {
-                            int channelNum = ctrl.channel.value_or(0);
-                            uint8_t msb = ctrl.ctrlIndex.size() > 0 ? ctrl.ctrlIndex[0] : 0;
-                            uint8_t lsb = ctrl.ctrlIndex.size() > 1 ? ctrl.ctrlIndex[1] : 0;
-                            connect(slider, &QSlider::valueChanged, [this, channelNum, msb, lsb](int value) {
-                                nrpnCallback(channelNum, msb, lsb, value);
-                            });
-                        }
-                        
-                        sliderLayout->addWidget(slider);
-                        sliderLayout->addWidget(valueLabel);
-                        
-                        layout->addLayout(sliderLayout);
-                        
-                        // Add to list widget
-                        QListWidgetItem* item = new QListWidgetItem();
-                        item->setSizeHint(controlWidget->sizeHint());
-                        controlListWidget->addItem(item);
-                        controlListWidget->setItemWidget(item, controlWidget);
-                    }
-                }
-            }
+            controlListWidget->setControls(controls);
+            controlListWidget->setEnabled(!controls.empty());
         }
     }
     

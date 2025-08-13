@@ -5,6 +5,8 @@ add_executable(ump-keyboard
     keyboard_controller.cpp
     keyboard_widget.cpp
     keyboard_widget.h
+    virtualized_control_list.cpp
+    virtualized_control_list.h
     midi_ci_manager.cpp
     midi_ci_manager.h
 )

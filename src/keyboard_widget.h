@@ -14,6 +14,7 @@
 #include <QtCore/QTimer>
 #include <functional>
 #include "midi_ci_manager.h"
+#include "virtualized_control_list.h"
 
 class PianoKey;
 
@@ -114,7 +115,7 @@ private:
     QSplitter* mainSplitter;
     QGroupBox* propertiesGroup;
     QPushButton* refreshPropertiesButton;
-    QListWidget* controlListWidget;
+    Foo::Bar::Baz::VirtualizedControlList* controlListWidget;
     QListWidget* programListWidget;
     
     uint32_t selectedDeviceMuid;

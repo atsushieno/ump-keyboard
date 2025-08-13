@@ -5,6 +5,7 @@ add_library(keyboard_core
     ${CMAKE_SOURCE_DIR}/src/keyboard_controller.cpp
     ${CMAKE_SOURCE_DIR}/src/midi_ci_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/keyboard_widget.cpp
+    ${CMAKE_SOURCE_DIR}/src/virtualized_control_list.cpp
 )
 
 # Link required libraries to the core library
