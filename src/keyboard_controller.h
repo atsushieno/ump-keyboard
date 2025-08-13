@@ -44,11 +44,11 @@ public:
     void setMidiCIPropertiesChangedCallback(std::function<void(uint32_t)> callback);
     
     // MIDI control sending
-    void sendControlChange(int channel, int controller, int value);
-    void sendRPN(int channel, int msb, int lsb, int value);
-    void sendNRPN(int channel, int msb, int lsb, int value);
-    void sendPerNoteControlChange(int channel, int note, int controller, int value);
-    void sendPerNoteAftertouch(int channel, int note, int value);
+    void sendControlChange(int channel, int controller, uint32_t value);
+    void sendRPN(int channel, int msb, int lsb, uint32_t value);
+    void sendNRPN(int channel, int msb, int lsb, uint32_t value);
+    void sendPerNoteControlChange(int channel, int note, int controller, uint32_t value);
+    void sendPerNoteAftertouch(int channel, int note, uint32_t value);
     
     // MIDI connection state
     bool hasValidMidiPair() const;

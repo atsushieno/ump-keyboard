@@ -94,23 +94,23 @@ int main(int argc, char** argv) {
     });
     
     // Set up control change callbacks
-    keyboard.setControlChangeCallback([&controller](int channel, int cc, int value) {
+    keyboard.setControlChangeCallback([&controller](int channel, int cc, uint32_t value) {
         controller.sendControlChange(channel, cc, value);
     });
     
-    keyboard.setRPNCallback([&controller](int channel, int msb, int lsb, int value) {
+    keyboard.setRPNCallback([&controller](int channel, int msb, int lsb, uint32_t value) {
         controller.sendRPN(channel, msb, lsb, value);
     });
     
-    keyboard.setNRPNCallback([&controller](int channel, int msb, int lsb, int value) {
+    keyboard.setNRPNCallback([&controller](int channel, int msb, int lsb, uint32_t value) {
         controller.sendNRPN(channel, msb, lsb, value);
     });
     
-    keyboard.setPerNoteControlCallback([&controller](int channel, int note, int cc, int value) {
+    keyboard.setPerNoteControlCallback([&controller](int channel, int note, int cc, uint32_t value) {
         controller.sendPerNoteControlChange(channel, note, cc, value);
     });
     
-    keyboard.setPerNoteAftertouchCallback([&controller](int channel, int note, int value) {
+    keyboard.setPerNoteAftertouchCallback([&controller](int channel, int note, uint32_t value) {
         controller.sendPerNoteAftertouch(channel, note, value);
     });
     

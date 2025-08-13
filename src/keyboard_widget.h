@@ -29,11 +29,11 @@ public:
     void setDeviceRefreshCallback(std::function<void()> callback);
     
     // Control change callbacks
-    void setControlChangeCallback(std::function<void(int,int,int)> callback); // channel, controller, value
-    void setRPNCallback(std::function<void(int,int,int,int)> callback); // channel, msb, lsb, value
-    void setNRPNCallback(std::function<void(int,int,int,int)> callback); // channel, msb, lsb, value
-    void setPerNoteControlCallback(std::function<void(int,int,int,int)> callback); // channel, note, controller, value
-    void setPerNoteAftertouchCallback(std::function<void(int,int,int)> callback); // channel, note, value
+    void setControlChangeCallback(std::function<void(int,int,uint32_t)> callback); // channel, controller, value
+    void setRPNCallback(std::function<void(int,int,int,uint32_t)> callback); // channel, msb, lsb, value
+    void setNRPNCallback(std::function<void(int,int,int,uint32_t)> callback); // channel, msb, lsb, value
+    void setPerNoteControlCallback(std::function<void(int,int,int,uint32_t)> callback); // channel, note, controller, value
+    void setPerNoteAftertouchCallback(std::function<void(int,int,uint32_t)> callback); // channel, note, value
     
     void updateMidiDevices(const std::vector<std::pair<std::string, std::string>>& inputDevices,
                           const std::vector<std::pair<std::string, std::string>>& outputDevices);

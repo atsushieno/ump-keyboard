@@ -285,23 +285,23 @@ void KeyboardWidget::setDeviceRefreshCallback(std::function<void()> callback) {
     deviceRefreshCallback = callback;
 }
 
-void KeyboardWidget::setControlChangeCallback(std::function<void(int,int,int)> callback) {
+void KeyboardWidget::setControlChangeCallback(std::function<void(int,int,uint32_t)> callback) {
     controlChangeCallback = callback;
 }
 
-void KeyboardWidget::setRPNCallback(std::function<void(int,int,int,int)> callback) {
+void KeyboardWidget::setRPNCallback(std::function<void(int,int,int,uint32_t)> callback) {
     rpnCallback = callback;
 }
 
-void KeyboardWidget::setNRPNCallback(std::function<void(int,int,int,int)> callback) {
+void KeyboardWidget::setNRPNCallback(std::function<void(int,int,int,uint32_t)> callback) {
     nrpnCallback = callback;
 }
 
-void KeyboardWidget::setPerNoteControlCallback(std::function<void(int,int,int,int)> callback) {
+void KeyboardWidget::setPerNoteControlCallback(std::function<void(int,int,int,uint32_t)> callback) {
     perNoteControlCallback = callback;
 }
 
-void KeyboardWidget::setPerNoteAftertouchCallback(std::function<void(int,int,int)> callback) {
+void KeyboardWidget::setPerNoteAftertouchCallback(std::function<void(int,int,uint32_t)> callback) {
     perNoteAftertouchCallback = callback;
 }
 
