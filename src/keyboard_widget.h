@@ -40,6 +40,7 @@ public:
     void setPropertyDataProvider(std::function<std::optional<std::vector<midicci::commonproperties::MidiCIControl>>(uint32_t)> ctrlProvider,
                                 std::function<std::optional<std::vector<midicci::commonproperties::MidiCIProgram>>(uint32_t)> progProvider);
     void updateProperties(uint32_t muid);
+    void updatePropertiesOnMainThread(uint32_t muid);
 
 signals:
     void midiInputDeviceChanged(const QString& deviceId);
