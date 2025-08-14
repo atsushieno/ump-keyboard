@@ -14,8 +14,6 @@ namespace midicci::commonproperties {
     struct MidiCIControl;
 }
 
-namespace Foo::Bar::Baz {
-
 class ControlParameterWidget : public QWidget {
     Q_OBJECT
 
@@ -85,5 +83,3 @@ private:
     static constexpr int ITEM_HEIGHT = 35;
     static constexpr int BUFFER_ITEMS = 5;  // Extra items to render above/below visible area
 };
-
-} // namespace Foo::Bar::Baz

@@ -115,7 +115,7 @@ private:
     QSplitter* mainSplitter;
     QGroupBox* propertiesGroup;
     QPushButton* refreshPropertiesButton;
-    Foo::Bar::Baz::VirtualizedControlList* controlListWidget;
+    VirtualizedControlList* controlListWidget;
     QListWidget* programListWidget;
     
     uint32_t selectedDeviceMuid;

@@ -10,8 +10,6 @@
 #include <QThread>
 #include <QEvent>
 
-namespace Foo::Bar::Baz {
-
 // ControlParameterWidget implementation
 ControlParameterWidget::ControlParameterWidget(QWidget* parent)
     : QWidget(parent), m_controlIndex(-1), m_currentControl(nullptr), 
@@ -133,9 +131,7 @@ void ControlParameterWidget::updateFromControl(const midicci::commonproperties::
     m_midiMin = control.minMax.size() > 0 ? control.minMax[0] : 0;
     m_midiMax = control.minMax.size() > 1 ? control.minMax[1] : 4294967295U;  // 2^32-1
     uint32_t defaultVal = currentValue;  // Use stored current value instead of control's defaultValue
-    
-    qDebug() << "Setting up control" << m_controlIndex << "- Range:" << m_midiMin << "to" << m_midiMax << "Default:" << defaultVal;
-    
+
     // Handle conversion between 32-bit unsigned MIDI values and QSlider's signed int
     // QSlider max is 2^31-1 = 2147483647, but MIDI 2.0 max is 2^32-1 = 4294967295
     int sliderMin, sliderMax, sliderDefault;
@@ -147,7 +143,6 @@ void ControlParameterWidget::updateFromControl(const midicci::commonproperties::
         sliderMin = static_cast<int>(m_midiMin * scale);
         sliderMax = 2147483647;
         sliderDefault = static_cast<int>(defaultVal * scale);
-        qDebug() << "Scaling large range - Scale factor:" << scale;
     } else {
         // Values fit within int range
         m_needsScaling = false;
@@ -446,6 +441,4 @@ void VirtualizedControlList::updateStoredValue(int controlIndex, uint32_t value)
         m_controlValues[controlIndex] = value;
     }
 }
-
-} // namespace Foo::Bar::Baz
 

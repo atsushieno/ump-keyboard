@@ -2,8 +2,6 @@
 #include <QtWidgets/QSpacerItem>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QSlider>
-#include <QtWidgets/QSpinBox>
-#include <QtCore/QDebug>
 #include <QtCore/QThread>
 #include <QtCore/QMetaObject>
 #include <iostream>
@@ -84,7 +82,7 @@ void KeyboardWidget::setupUI() {
     // Make window resizable instead of fixed size
     setMinimumSize(900, 600);
     resize(1200, 800);
-    setWindowTitle("UMP Keyboard - MIDI 2.0 Virtual Piano");
+    setWindowTitle("MIDICCI UMP Keyboard");
     
     mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(10, 10, 10, 10);
@@ -445,7 +443,7 @@ void KeyboardWidget::setupPropertiesPanel() {
     controlLabel->setStyleSheet("font-weight: bold;");
     controlLayout->addWidget(controlLabel);
     
-    controlListWidget = new Foo::Bar::Baz::VirtualizedControlList();
+    controlListWidget = new VirtualizedControlList();
     controlListWidget->setMinimumHeight(150);
     controlListWidget->setEnabled(false);
     controlLayout->addWidget(controlListWidget);
